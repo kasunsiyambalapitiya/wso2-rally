@@ -1,0 +1,815 @@
+<title>WSO2 Motor Rally 2027 — Wireframes</title>
+<style>
+  :root {
+    --canvas:#e8ecf2; --surface:#ffffff; --surface-2:#f3f6f9; --panel:#eef2f6;
+    --ink:#17202e; --muted:#5f6b80; --faint:#b7c0cd; --bar:#d3dae3;
+    --stroke:#cdd6e0; --stroke-2:#b2bdca; --chrome:#dce2ea;
+    --accent:#0c8a9b; --accent-ink:#076370; --accent-wash:#dcf1f3;
+    --amber:#b9760a; --amber-wash:#f6ebd6; --green:#2c8d57; --green-wash:#dcefe3;
+    --font-sans:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
+    --font-mono:ui-monospace,"SF Mono","Cascadia Code",Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --canvas:#0a1019; --surface:#131c28; --surface-2:#0e1620; --panel:#18222f;
+      --ink:#e7edf5; --muted:#8c98aa; --faint:#3a4757; --bar:#2b3745;
+      --stroke:#293544; --stroke-2:#3a4757; --chrome:#1a2531;
+      --accent:#34b5c5; --accent-ink:#8fdbe4; --accent-wash:#0e2b30;
+      --amber:#dda63f; --amber-wash:#2e2410; --green:#48ba80; --green-wash:#12261b;
+    }
+  }
+  :root[data-theme="dark"]{
+    --canvas:#0a1019; --surface:#131c28; --surface-2:#0e1620; --panel:#18222f;
+    --ink:#e7edf5; --muted:#8c98aa; --faint:#3a4757; --bar:#2b3745;
+    --stroke:#293544; --stroke-2:#3a4757; --chrome:#1a2531;
+    --accent:#34b5c5; --accent-ink:#8fdbe4; --accent-wash:#0e2b30;
+    --amber:#dda63f; --amber-wash:#2e2410; --green:#48ba80; --green-wash:#12261b;
+  }
+  :root[data-theme="light"]{
+    --canvas:#e8ecf2; --surface:#ffffff; --surface-2:#f3f6f9; --panel:#eef2f6;
+    --ink:#17202e; --muted:#5f6b80; --faint:#b7c0cd; --bar:#d3dae3;
+    --stroke:#cdd6e0; --stroke-2:#b2bdca; --chrome:#dce2ea;
+    --accent:#0c8a9b; --accent-ink:#076370; --accent-wash:#dcf1f3;
+    --amber:#b9760a; --amber-wash:#f6ebd6; --green:#2c8d57; --green-wash:#dcefe3;
+  }
+
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--canvas);color:var(--ink);font-family:var(--font-sans);
+    line-height:1.5;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:1200px;margin:0 auto;padding:40px 24px 80px;}
+
+  /* ---- header ---- */
+  header.top{border-bottom:1px solid var(--stroke);padding-bottom:28px;margin-bottom:36px;}
+  .eyebrow{font-family:var(--font-mono);font-size:12px;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--accent);margin:0 0 10px;}
+  h1{font-size:clamp(28px,4vw,44px);line-height:1.08;margin:0 0 12px;font-weight:700;
+    letter-spacing:-.02em;text-wrap:balance;}
+  .sub{font-size:17px;color:var(--muted);max-width:64ch;margin:0 0 20px;}
+  .meta{display:flex;flex-wrap:wrap;gap:8px;}
+  .tag{font-family:var(--font-mono);font-size:11.5px;padding:5px 10px;border:1px solid var(--stroke-2);
+    border-radius:999px;color:var(--muted);background:var(--surface);}
+  .tag b{color:var(--ink);font-weight:600;}
+
+  /* ---- section ---- */
+  section{margin-top:52px;}
+  .sec-head{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;
+    border-bottom:1px solid var(--stroke);padding-bottom:12px;margin-bottom:26px;}
+  .sec-num{font-family:var(--font-mono);font-size:13px;color:var(--accent);font-weight:600;}
+  h2{font-size:24px;margin:0;font-weight:700;letter-spacing:-.01em;}
+  .sec-note{font-size:14px;color:var(--muted);margin-left:auto;}
+
+  /* ---- flow strip ---- */
+  .flow{display:flex;flex-wrap:wrap;gap:8px;align-items:stretch;margin:0 0 8px;}
+  .flow .step{flex:1;min-width:130px;background:var(--surface);border:1px solid var(--stroke);
+    border-radius:8px;padding:12px 14px;position:relative;}
+  .flow .step .n{font-family:var(--font-mono);font-size:11px;color:var(--accent);}
+  .flow .step .t{font-weight:600;font-size:14px;margin-top:2px;}
+  .flow .step .d{font-size:12.5px;color:var(--muted);margin-top:3px;}
+
+  /* ---- frame grids ---- */
+  .grid{display:flex;flex-wrap:wrap;gap:26px;}
+  .cell{display:flex;flex-direction:column;}
+  .cap{margin-top:12px;max-width:520px;}
+  .cap .ct{font-weight:600;font-size:14px;}
+  .cap .cn{font-family:var(--font-mono);font-size:11px;color:var(--accent);margin-right:7px;}
+  .cap .cd{font-size:13px;color:var(--muted);margin-top:2px;}
+
+  /* ---- desktop frame ---- */
+  .desktop{width:520px;max-width:100%;border:1px solid var(--stroke-2);border-radius:10px;
+    overflow:hidden;background:var(--surface);box-shadow:0 1px 2px rgba(0,0,0,.04);}
+  .chrome{height:30px;background:var(--chrome);display:flex;align-items:center;gap:6px;padding:0 12px;
+    border-bottom:1px solid var(--stroke);}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--faint);}
+  .chrome .url{margin-left:10px;height:14px;flex:1;max-width:230px;border-radius:4px;background:var(--surface-2);
+    border:1px solid var(--stroke);font-family:var(--font-mono);font-size:9px;color:var(--muted);
+    display:flex;align-items:center;padding:0 8px;}
+  .screen{display:flex;height:340px;}
+
+  /* sidenav */
+  .nav{width:132px;background:var(--surface-2);border-right:1px solid var(--stroke);padding:12px 10px;
+    display:flex;flex-direction:column;gap:4px;flex-shrink:0;}
+  .brand{display:flex;align-items:center;gap:7px;margin-bottom:10px;}
+  .brand .logo{width:20px;height:20px;border-radius:5px;background:var(--accent);}
+  .brand .bn{font-weight:700;font-size:12px;letter-spacing:-.01em;}
+  .nav .ni{font-size:11.5px;color:var(--muted);padding:6px 8px;border-radius:6px;}
+  .nav .ni.on{background:var(--accent-wash);color:var(--accent-ink);font-weight:600;}
+  .body{flex:1;padding:14px 16px;overflow:hidden;display:flex;flex-direction:column;gap:10px;}
+  .pt{font-weight:700;font-size:14px;}
+  .row{display:flex;gap:10px;}
+  .row.wrap{flex-wrap:wrap;}
+  .col{display:flex;flex-direction:column;gap:8px;flex:1;}
+
+  /* wireframe primitives */
+  .bar{height:9px;border-radius:3px;background:var(--bar);}
+  .bar.s{width:40%} .bar.m{width:65%} .bar.l{width:88%} .bar.xs{width:24%}
+  .lbl{font-size:10.5px;color:var(--muted);font-family:var(--font-mono);}
+  .box{border:1px solid var(--stroke);border-radius:7px;background:var(--surface);padding:10px;}
+  .box.fill{background:var(--surface-2);}
+  .btn{display:inline-flex;align-items:center;justify-content:center;height:26px;padding:0 12px;
+    border-radius:6px;background:var(--accent);color:#fff;font-size:11px;font-weight:600;}
+  .btn.ghost{background:transparent;border:1px solid var(--stroke-2);color:var(--muted);}
+  .input{height:26px;border:1px solid var(--stroke-2);border-radius:6px;background:var(--surface);
+    display:flex;align-items:center;padding:0 9px;font-size:10.5px;color:var(--muted);
+    font-family:var(--font-mono);justify-content:space-between;}
+  .input .cv{color:var(--faint);}
+  .map{flex:1;border:1px solid var(--stroke);border-radius:8px;position:relative;overflow:hidden;
+    background:
+      repeating-linear-gradient(0deg,transparent 0 22px,var(--stroke) 22px 23px),
+      repeating-linear-gradient(90deg,transparent 0 22px,var(--stroke) 22px 23px),
+      var(--surface-2);}
+  .route{position:absolute;height:2px;background:var(--accent);transform-origin:left;}
+  .node{position:absolute;width:11px;height:11px;border-radius:50%;background:var(--accent);
+    border:2px solid var(--surface);box-shadow:0 0 0 1px var(--accent);}
+  .node.g{background:var(--green);box-shadow:0 0 0 1px var(--green);}
+  .node.a{background:var(--amber);box-shadow:0 0 0 1px var(--amber);}
+  .pin{position:absolute;font-size:9px;font-family:var(--font-mono);color:var(--muted);}
+  .geo{position:absolute;border:1.5px dashed var(--amber);border-radius:50%;background:var(--amber-wash);opacity:.55;}
+
+  /* waypoint reorder list */
+  .wp{display:flex;align-items:center;gap:7px;padding:5px 7px;border:1px solid var(--stroke);
+    border-radius:6px;background:var(--surface);font-size:10.5px;}
+  .wp .mv{display:flex;flex-direction:column;gap:1px;color:var(--muted);font-size:7px;line-height:1;cursor:ns-resize;flex-shrink:0;}
+  .wp .nm{flex:1;}
+  .wp .cx{color:var(--muted);font-size:9px;}
+  .wp.exp{flex-direction:column;align-items:stretch;border-color:var(--accent);gap:0;padding:0;}
+  .wp.exp .hd{display:flex;align-items:center;gap:7px;padding:6px 7px;}
+  .wp.exp .hd .cx{color:var(--accent);}
+  .wp.exp .cfg{padding:7px 8px;border-top:1px dashed var(--stroke);background:var(--surface-2);border-radius:0 0 6px 6px;}
+
+  table.tbl{width:100%;border-collapse:collapse;font-size:10.5px;}
+  table.tbl th{text-align:left;color:var(--muted);font-weight:600;font-family:var(--font-mono);
+    font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;padding:5px 6px;border-bottom:1px solid var(--stroke);}
+  table.tbl td{padding:6px 6px;border-bottom:1px solid var(--stroke);color:var(--ink);}
+  .chip{display:inline-block;font-size:9px;font-family:var(--font-mono);padding:2px 7px;border-radius:999px;}
+  .chip.acc{background:var(--accent-wash);color:var(--accent-ink);}
+  .chip.gr{background:var(--green-wash);color:var(--green);}
+  .chip.am{background:var(--amber-wash);color:var(--amber);}
+
+  .kpi{flex:1;border:1px solid var(--stroke);border-radius:8px;padding:9px 11px;background:var(--surface-2);}
+  .kpi .kn{font-size:9.5px;color:var(--muted);font-family:var(--font-mono);text-transform:uppercase;letter-spacing:.05em;}
+  .kpi .kv{font-size:20px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums;margin-top:2px;}
+
+  /* leaderboard rows */
+  .lead{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:7px;background:var(--surface-2);
+    border:1px solid var(--stroke);}
+  .lead .rk{font-family:var(--font-mono);font-weight:700;font-size:13px;color:var(--accent);width:20px;}
+  .lead .nm{flex:1;font-size:12px;font-weight:600;}
+  .lead .sc{font-family:var(--font-mono);font-weight:700;font-size:13px;font-variant-numeric:tabular-nums;}
+  .lead.top{background:var(--accent-wash);border-color:var(--accent);}
+
+  /* ---- phone frame ---- */
+  .phone{width:248px;flex-shrink:0;border:9px solid #10151d;border-radius:34px;overflow:hidden;
+    background:var(--surface);position:relative;box-shadow:0 4px 18px rgba(0,0,0,.14);}
+  :root[data-theme="dark"] .phone{border-color:#05080c;}
+  @media (prefers-color-scheme:dark){.phone{border-color:#05080c;}}
+  .notch{position:absolute;top:0;left:50%;transform:translateX(-50%);width:96px;height:20px;
+    background:#10151d;border-radius:0 0 13px 13px;z-index:5;}
+  .pscreen{height:492px;display:flex;flex-direction:column;background:var(--surface);}
+  .statusbar{height:26px;display:flex;align-items:center;justify-content:space-between;padding:0 16px 0 18px;
+    font-size:9.5px;font-family:var(--font-mono);color:var(--muted);padding-top:4px;}
+  .appbar{padding:8px 14px;border-bottom:1px solid var(--stroke);display:flex;align-items:center;gap:8px;
+    background:var(--surface-2);}
+  .appbar .at{font-weight:700;font-size:12.5px;flex:1;}
+  .appbar .veh{font-family:var(--font-mono);font-size:9px;color:var(--accent);border:1px solid var(--accent);
+    border-radius:5px;padding:1px 5px;}
+  .hdstat{display:flex;gap:12px;flex-shrink:0;}
+  .hs{display:flex;flex-direction:column;align-items:flex-end;line-height:1;}
+  .hsl{font-size:7px;font-family:var(--font-mono);color:var(--muted);letter-spacing:.06em;}
+  .hsv{font-size:12px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:2px;}
+  .pbody{flex:1;padding:14px;display:flex;flex-direction:column;gap:11px;overflow:hidden;}
+  .pbtn{height:38px;border-radius:9px;background:var(--accent);color:#fff;display:flex;align-items:center;
+    justify-content:center;font-weight:700;font-size:13px;}
+  .pbtn.lock{background:var(--faint);color:var(--surface);}
+  .pbtn.ghost{background:transparent;border:1px solid var(--stroke-2);color:var(--ink);}
+  .pinput{height:40px;border:1px solid var(--stroke-2);border-radius:9px;display:flex;align-items:center;
+    justify-content:space-between;padding:0 12px;font-size:12px;color:var(--muted);}
+  .pinput .cv{color:var(--faint);font-family:var(--font-mono);}
+  .plabel{font-size:10px;font-family:var(--font-mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
+  .bignum{font-size:46px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums;line-height:1;}
+  .camera{flex:1;border-radius:11px;background:repeating-linear-gradient(45deg,var(--surface-2) 0 9px,var(--panel) 9px 18px);
+    border:1px solid var(--stroke);position:relative;display:flex;align-items:center;justify-content:center;}
+  .reticle{width:120px;height:74px;border:2px solid var(--accent);border-radius:8px;position:relative;}
+  .reticle::before{content:"";position:absolute;left:8px;right:8px;top:50%;height:2px;background:var(--accent);opacity:.7;}
+  .gauge{flex:1;border:1px solid var(--stroke);border-radius:11px;background:var(--surface-2);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;position:relative;}
+  .center{align-items:center;text-align:center;justify-content:center;}
+  .fullpad{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;}
+
+  /* annotation callouts */
+  .annot{border-left:3px solid var(--accent);background:var(--accent-wash);padding:9px 12px;border-radius:0 7px 7px 0;
+    margin-top:12px;max-width:520px;}
+  .annot .al{font-family:var(--font-mono);font-size:10px;color:var(--accent-ink);text-transform:uppercase;
+    letter-spacing:.08em;font-weight:600;}
+  .annot .ax{font-size:12.5px;color:var(--ink);margin-top:3px;}
+
+  /* legend + tasks */
+  .legend{display:flex;flex-wrap:wrap;gap:18px;background:var(--surface);border:1px solid var(--stroke);
+    border-radius:10px;padding:16px 20px;margin-top:14px;}
+  .legend .li{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted);}
+  .sw{width:16px;height:16px;border-radius:4px;flex-shrink:0;}
+  .tasks{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px;margin-top:14px;}
+  .task{border:1px solid var(--stroke);border-radius:8px;padding:11px 13px;background:var(--surface);}
+  .task .tn{font-family:var(--font-mono);font-size:10px;color:var(--accent);font-weight:600;}
+  .task .tt{font-weight:600;font-size:13px;margin:2px 0 3px;}
+  .task .td{font-size:12px;color:var(--muted);}
+  .task .sensor{font-family:var(--font-mono);font-size:9.5px;color:var(--amber);margin-top:6px;text-transform:uppercase;letter-spacing:.04em;}
+
+  .foot{margin-top:60px;border-top:1px solid var(--stroke);padding-top:20px;font-size:13px;color:var(--muted);}
+  .foot b{color:var(--ink);}
+  .scroller{overflow-x:auto;padding-bottom:6px;}
+  @media (max-width:560px){ .screen{height:300px;} .desktop{width:100%;} }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <p class="eyebrow">Popcorn Teams × WSO2 · Wireframes v1</p>
+    <h1>WSO2 Motor Rally 2027 — App Wireframes</h1>
+    <p class="sub">Low-fidelity screen structure and flow for the two front-ends: the organizer <b>Web App</b> and the in-car <b>Micro App</b>. Theme motif — vehicles are “data packets”, crews are “nodes”, routing from start to endpoint in perfect system sync.</p>
+    <div class="meta">
+      <span class="tag">Scope&nbsp;<b>MVP prototype</b></span>
+      <span class="tag">Micro app&nbsp;<b>React PWA + Web APIs</b></span>
+      <span class="tag">Participant auth&nbsp;<b>Vehicle ID + crew dropdown</b></span>
+      <span class="tag">Web app&nbsp;<b>React + Oxygen UI + Asgardeo</b></span>
+      <span class="tag">Backend&nbsp;<b>Go REST + WebSocket</b></span>
+    </div>
+  </header>
+
+  <!-- ============ PARTICIPANT FLOW ============ -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">FLOW</span>
+      <h2>Participant journey (in-car)</h2>
+      <span class="sec-note">One active phone per vehicle · zero-facilitator start</span>
+    </div>
+    <div class="flow">
+      <div class="step"><div class="n">01</div><div class="t">Initialize</div><div class="d">Pick vehicle ID + crew nodes from dropdowns. Instant DB bind.</div></div>
+      <div class="step"><div class="n">02</div><div class="t">Geofence lock</div><div class="d">Interface locked until vehicle sits inside the startup grid.</div></div>
+      <div class="step"><div class="n">03</div><div class="t">09:00 sync</div><div class="d">Server countdown; route cipher unlocks across all apps.</div></div>
+      <div class="step"><div class="n">04</div><div class="t">Legs &amp; tasks</div><div class="d">15 modular tasks trigger by geofence, sensor, or scan.</div></div>
+      <div class="step"><div class="n">05</div><div class="t">Pearl Bay arrival</div><div class="d">Auto-logoff locks score; digital vouchers issued.</div></div>
+    </div>
+  </section>
+
+  <!-- ============ WEB APP ============ -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">A</span>
+      <h2>Web App — Organizer Portal</h2>
+      <span class="sec-note">Desktop · left sidenav · Oxygen UI · Asgardeo login</span>
+    </div>
+    <div class="scroller">
+    <div class="grid">
+
+      <!-- W1 Dashboard -->
+      <div class="cell">
+        <div class="desktop">
+          <div class="chrome"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">rally.wso2.com/events</span></div>
+          <div class="screen">
+            <div class="nav">
+              <div class="brand"><div class="logo"></div><div class="bn">Rally Ops</div></div>
+              <div class="ni on">Events</div><div class="ni">Routes</div><div class="ni">Tasks</div>
+              <div class="ni">Vehicles</div><div class="ni">Live Monitor</div><div class="ni">Leaderboard</div><div class="ni">Debrief</div>
+            </div>
+            <div class="body">
+              <div class="row" style="align-items:center"><div class="pt">Events</div><div style="margin-left:auto"><span class="btn">+ New event</span></div></div>
+              <div class="row">
+                <div class="kpi"><div class="kn">Active</div><div class="kv">1</div></div>
+                <div class="kpi"><div class="kn">Vehicles</div><div class="kv">150</div></div>
+                <div class="kpi"><div class="kn">Crews</div><div class="kv">600</div></div>
+                <div class="kpi"><div class="kn">Tasks</div><div class="kv">15</div></div>
+                <div class="kpi" style="border-color:var(--amber);background:var(--amber-wash)"><div class="kn" style="color:var(--amber)">⚠ Alerts</div><div class="kv" style="color:var(--amber)">3</div><div class="lbl" style="font-size:8.5px;margin-top:1px">breakdown · phone</div></div>
+              </div>
+              <div class="box" style="padding:0">
+                <table class="tbl">
+                  <tr><th>Event</th><th>Date</th><th>Start</th><th>Route</th><th>Status</th><th></th></tr>
+                  <tr><td>Motor Rally 2027</td><td>2027-03-14</td><td>09:00 AM</td><td>Inland + Wetlands</td><td><span class="chip am">Setup</span></td><td><span class="btn ghost" style="height:20px;padding:0 9px;font-size:10px">Edit</span></td></tr>
+                  <tr><td>Pilot Run</td><td>2027-02-20</td><td>08:30 AM</td><td>Inland</td><td><span class="chip gr">Complete</span></td><td><span class="btn ghost" style="height:20px;padding:0 9px;font-size:10px">View</span></td></tr>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="cap"><div class="ct"><span class="cn">A1</span>Events dashboard</div><div class="cd">List + create events; headline counts of vehicles, crews, tasks.</div></div>
+      </div>
+
+      <!-- W2 Event setup -->
+      <div class="cell">
+        <div class="desktop">
+          <div class="chrome"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">rally.wso2.com/events/2027/setup</span></div>
+          <div class="screen">
+            <div class="nav">
+              <div class="brand"><div class="logo"></div><div class="bn">Rally Ops</div></div>
+              <div class="ni on">Events</div><div class="ni">Routes</div><div class="ni">Tasks</div>
+              <div class="ni">Vehicles</div><div class="ni">Live Monitor</div><div class="ni">Leaderboard</div><div class="ni">Debrief</div>
+            </div>
+            <div class="body">
+              <div class="pt">Event setup · Motor Rally 2027</div>
+              <div class="row">
+                <div class="col">
+                  <span class="lbl">Event name</span><div class="input">Motor Rally 2027<span class="cv">edit</span></div>
+                  <span class="lbl">Date</span><div class="input">2027-03-14<span class="cv">📅</span></div>
+                  <span class="lbl">Auto-start time</span><div class="input">09:00 AM<span class="cv">⏱</span></div>
+                  <span class="lbl">Start location · boundary radius</span>
+                  <div class="row" style="gap:6px">
+                    <div class="input" style="flex:1">Diyatha Uyana grid<span class="cv">📍</span></div>
+                    <div class="input" style="width:62px;flex:none;font-size:9.5px">40 m<span class="cv">▾</span></div>
+                  </div>
+                  <span class="lbl">End location · boundary radius</span>
+                  <div class="row" style="gap:6px">
+                    <div class="input" style="flex:1">Pearl Bay, Bandaragama<span class="cv">📍</span></div>
+                    <div class="input" style="width:62px;flex:none;font-size:9.5px">30 m<span class="cv">▾</span></div>
+                  </div>
+                </div>
+                <div class="col">
+                  <span class="lbl">Startup grid geofence</span>
+                  <div class="map" style="min-height:150px">
+                    <div class="geo" style="left:70px;top:40px;width:80px;height:80px"></div>
+                    <div class="node" style="left:95px;top:65px"></div>
+                    <div class="node" style="left:110px;top:80px"></div>
+                    <div class="pin" style="left:66px;top:24px">START GRID</div>
+                  </div>
+                  <span class="btn ghost">Draw boundary on map</span>
+                </div>
+              </div>
+              <div class="row"><div style="margin-left:auto"><span class="btn">Save &amp; publish</span></div></div>
+            </div>
+          </div>
+        </div>
+        <div class="cap"><div class="ct"><span class="cn">A2</span>Event setup</div><div class="cd">Name, date, 09:00 auto-start, endpoint, and the start-grid geofence drawn on a map.</div></div>
+      </div>
+
+      <!-- W3 Routes -->
+      <div class="cell">
+        <div class="desktop">
+          <div class="chrome"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">rally.wso2.com/routes</span></div>
+          <div class="screen">
+            <div class="nav">
+              <div class="brand"><div class="logo"></div><div class="bn">Rally Ops</div></div>
+              <div class="ni">Events</div><div class="ni on">Routes</div><div class="ni">Tasks</div>
+              <div class="ni">Vehicles</div><div class="ni">Live Monitor</div><div class="ni">Leaderboard</div><div class="ni">Debrief</div>
+            </div>
+            <div class="body">
+              <div class="row" style="align-items:center"><div class="pt">Routes</div>
+                <div style="margin-left:auto;display:flex;gap:6px"><span class="chip acc">Route 1 · Inland</span><span class="chip">Route 2 · Wetlands</span></div>
+              </div>
+              <div class="row" style="flex:1">
+                <div class="col" style="max-width:198px">
+                  <span class="lbl">Waypoints · reorder ▲▼</span>
+                  <div class="box fill" style="display:flex;flex-direction:column;gap:5px;padding:8px">
+                    <div class="wp"><span class="mv"><span>▲</span><span>▼</span></span><span class="nm">◉ Start grid</span><span class="cx">15 m</span></div>
+                    <div class="wp"><span class="mv"><span>▲</span><span>▼</span></span><span class="nm">Parliament Rd</span><span class="cx">50 m</span></div>
+                    <div class="wp exp">
+                      <div class="hd"><span class="mv"><span>▲</span><span>▼</span></span><span class="nm">Maharagama</span><span class="cx">▾</span></div>
+                      <div class="cfg">
+                        <span class="lbl" style="font-size:8.5px">Coordinate boundary radius</span>
+                        <div class="input" style="height:22px;font-size:9.5px;margin-top:4px">15 m<span class="cv">▾</span></div>
+                        <span class="lbl" style="font-size:8px;display:block;margin-top:4px">Trigger zone for tasks below</span>
+                        <span class="lbl" style="font-size:8.5px;display:block;margin-top:8px">Tasks at this waypoint</span>
+                        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">
+                          <span class="chip acc">T1 Cipher&nbsp;<span class="cx" style="font-size:8px">✕</span></span>
+                          <span class="chip acc">T6 Barcode&nbsp;<span class="cx" style="font-size:8px">✕</span></span>
+                        </div>
+                        <div class="input" style="height:22px;font-size:9.5px;margin-top:5px">+ Add task ID<span class="cv">▾</span></div>
+                      </div>
+                    </div>
+                    <div class="wp"><span class="mv"><span>▲</span><span>▼</span></span><span class="nm">Piliyandala</span><span class="cx">50 m</span></div>
+                    <div class="wp"><span class="mv"><span>▲</span><span>▼</span></span><span class="nm">Kahathuduwa</span><span class="cx">50 m</span></div>
+                    <div class="wp"><span class="mv"><span>▲</span><span>▼</span></span><span class="nm">◉ Bandaragama</span><span class="cx">30 m</span></div>
+                  </div>
+                  <span class="btn ghost">+ Waypoint</span>
+                </div>
+                <div class="map">
+                  <div class="route" style="left:24px;top:40px;width:80px;transform:rotate(28deg)"></div>
+                  <div class="route" style="left:96px;top:80px;width:70px;transform:rotate(-14deg)"></div>
+                  <div class="route" style="left:160px;top:70px;width:90px;transform:rotate(24deg)"></div>
+                  <div class="node" style="left:20px;top:36px"></div>
+                  <div class="node a" style="left:96px;top:76px"></div>
+                  <div class="node a" style="left:158px;top:64px"></div>
+                  <div class="node g" style="left:244px;top:96px"></div>
+                  <div class="geo" style="left:82px;top:60px;width:44px;height:44px"></div>
+                  <div class="pin" style="left:18px;top:20px">START</div>
+                  <div class="pin" style="left:224px;top:112px">END</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="cap"><div class="ct"><span class="cn">A3</span>Routes &amp; geofences</div><div class="cd">Two routes (Inland / Wetlands). Order waypoints, place task geofences on the map.</div></div>
+      </div>
+
+      <!-- W4 Task library -->
+      <div class="cell">
+        <div class="desktop">
+          <div class="chrome"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">rally.wso2.com/tasks</span></div>
+          <div class="screen">
+            <div class="nav">
+              <div class="brand"><div class="logo"></div><div class="bn">Rally Ops</div></div>
+              <div class="ni">Events</div><div class="ni">Routes</div><div class="ni on">Tasks</div>
+              <div class="ni">Vehicles</div><div class="ni">Live Monitor</div><div class="ni">Leaderboard</div><div class="ni">Debrief</div>
+            </div>
+            <div class="body">
+              <div class="row" style="align-items:center"><div class="pt">Task library · 15</div><div style="margin-left:auto"><span class="btn">+ Task</span></div></div>
+              <div class="box" style="padding:0;flex:1;overflow:hidden">
+                <table class="tbl">
+                  <tr><th>#</th><th>Task</th><th>Type</th><th>Trigger</th><th>Pts</th><th></th></tr>
+                  <tr><td>1</td><td>Translation Cipher</td><td><span class="chip acc">Input</span></td><td>Geofence</td><td>50</td><td><span class="btn ghost" style="height:20px;padding:0 9px;font-size:10px">Edit</span></td></tr>
+                  <tr><td>4</td><td>Eco-Driving Telematics</td><td><span class="chip am">Sensor</span></td><td>Accelerometer</td><td>80</td><td><span class="btn ghost" style="height:20px;padding:0 9px;font-size:10px">Edit</span></td></tr>
+                  <tr><td>6</td><td>Barcode Scan</td><td><span class="chip am">Sensor</span></td><td>Camera</td><td>60</td><td><span class="btn ghost" style="height:20px;padding:0 9px;font-size:10px">Edit</span></td></tr>
+                  <tr><td>8</td><td>BLE Proximity Ping</td><td><span class="chip am">Sensor</span></td><td>QR checkpoint*</td><td>60</td><td><span class="btn ghost" style="height:20px;padding:0 9px;font-size:10px">Edit</span></td></tr>
+                  <tr><td>11</td><td>Dynamic Route Select</td><td><span class="chip acc">Branch</span></td><td>Choice</td><td>±40</td><td><span class="btn ghost" style="height:20px;padding:0 9px;font-size:10px">Edit</span></td></tr>
+                  <tr><td>12</td><td>Mandatory Static Rest</td><td><span class="chip am">Rest</span></td><td>Geofence</td><td>—</td><td><span class="btn ghost" style="height:20px;padding:0 9px;font-size:10px">Edit</span></td></tr>
+                  <tr><td>15</td><td>Sequence Gate Match</td><td><span class="chip acc">Puzzle</span></td><td>Geofence</td><td>70</td><td><span class="btn ghost" style="height:20px;padding:0 9px;font-size:10px">Edit</span></td></tr>
+                </table>
+              </div>
+              <span class="lbl">* BLE substituted with QR/geofence checkpoint on iOS PWA</span>
+            </div>
+          </div>
+        </div>
+        <div class="cap"><div class="ct"><span class="cn">A4</span>Task library</div><div class="cd">All 15 tasks as configurable definitions: type, trigger, points, parameters. Config-driven engine.</div></div>
+      </div>
+
+      <!-- W5 Vehicles & crews -->
+      <div class="cell">
+        <div class="desktop">
+          <div class="chrome"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">rally.wso2.com/vehicles</span></div>
+          <div class="screen">
+            <div class="nav">
+              <div class="brand"><div class="logo"></div><div class="bn">Rally Ops</div></div>
+              <div class="ni">Events</div><div class="ni">Routes</div><div class="ni">Tasks</div>
+              <div class="ni on">Vehicles</div><div class="ni">Live Monitor</div><div class="ni">Leaderboard</div><div class="ni">Debrief</div>
+            </div>
+            <div class="body">
+              <div class="row" style="align-items:center"><div class="pt">Vehicles &amp; crews</div>
+                <div style="margin-left:auto;display:flex;gap:6px">
+                  <span class="btn ghost" title="Import from CSV" style="width:30px;padding:0">📥</span>
+                  <span class="btn ghost" title="Export to CSV" style="width:30px;padding:0">📤</span>
+                  <span class="btn">+ Vehicle</span></div></div>
+              <div class="box" style="padding:0;flex:1;overflow:hidden">
+                <table class="tbl">
+                  <tr><th>Vehicle</th><th>Team</th><th>Crew</th><th>Contact</th><th>Type</th><th>Route</th></tr>
+                  <tr><td>PKT-001</td><td>Data Dashers</td><td>4</td><td>071 234 5678</td><td>SUV</td><td><span class="chip acc">Inland</span></td></tr>
+                  <tr><td>PKT-002</td><td>Sync Squad</td><td>4</td><td>077 987 6543</td><td>Sedan</td><td><span class="chip">Wetlands</span></td></tr>
+                  <tr><td>PKT-003</td><td>Null Pointers</td><td>3</td><td>076 445 1122</td><td>Van</td><td><span class="chip acc">Inland</span></td></tr>
+                </table>
+              </div>
+              <span class="lbl">These records feed the micro-app initialization dropdowns</span>
+            </div>
+          </div>
+        </div>
+        <div class="cap"><div class="ct"><span class="cn">A5</span>Vehicles &amp; crews</div><div class="cd">Provision vehicle IDs, crew profiles, and route assignment — the source for the in-car dropdowns.</div></div>
+      </div>
+
+      <!-- W6 Live monitor -->
+      <div class="cell">
+        <div class="desktop">
+          <div class="chrome"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">rally.wso2.com/live</span></div>
+          <div class="screen">
+            <div class="nav">
+              <div class="brand"><div class="logo"></div><div class="bn">Rally Ops</div></div>
+              <div class="ni">Events</div><div class="ni">Routes</div><div class="ni">Tasks</div>
+              <div class="ni">Vehicles</div><div class="ni on">Live Monitor</div><div class="ni">Leaderboard</div><div class="ni">Debrief</div>
+            </div>
+            <div class="body">
+              <div class="row" style="align-items:center"><div class="pt">Live monitor</div><div style="margin-left:auto"><span class="chip gr">● WebSocket live</span></div></div>
+              <div class="row" style="flex:1">
+                <div class="map">
+                  <div class="node g" style="left:40px;top:50px"></div>
+                  <div class="node" style="left:120px;top:90px"></div>
+                  <div class="node a" style="left:200px;top:60px"></div>
+                  <div class="node" style="left:150px;top:140px"></div>
+                  <div class="node g" style="left:250px;top:120px"></div>
+                  <div class="pin" style="left:36px;top:34px">PKT-001</div>
+                  <div class="pin" style="left:196px;top:44px">PKT-014</div>
+                </div>
+                <div class="col" style="max-width:150px">
+                  <span class="lbl">Task completion</span>
+                  <div class="box fill" style="font-size:10px;display:flex;flex-direction:column;gap:5px">
+                    <div class="row" style="justify-content:space-between"><span>PKT-001</span><span class="chip gr">11/15</span></div>
+                    <div class="row" style="justify-content:space-between"><span>PKT-002</span><span class="chip am">7/15</span></div>
+                    <div class="row" style="justify-content:space-between"><span>PKT-003</span><span class="chip am">6/15</span></div>
+                    <div class="row" style="justify-content:space-between"><span>PKT-014</span><span class="chip gr">10/15</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="cap"><div class="ct"><span class="cn">A6</span>Live monitor</div><div class="cd">Real-time vehicle positions + task-completion matrix over WebSocket. Ops visibility during the rally.</div></div>
+      </div>
+
+      <!-- W7 Leaderboard -->
+      <div class="cell">
+        <div class="desktop">
+          <div class="chrome"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">rally.wso2.com/leaderboard/present</span></div>
+          <div class="screen">
+            <div class="body" style="padding:20px 26px">
+              <div class="row" style="align-items:center"><div class="pt" style="font-size:18px">🏁 Live Leaderboard</div>
+                <div style="margin-left:auto"><span class="chip gr">● Live · pavilion screen</span></div></div>
+              <div class="col" style="gap:7px;margin-top:6px">
+                <div class="lead top"><span class="rk">1</span><span class="nm">Data Dashers · PKT-001</span><span class="sc">920</span></div>
+                <div class="lead"><span class="rk">2</span><span class="nm">Null Pointers · PKT-014</span><span class="sc">870</span></div>
+                <div class="lead"><span class="rk">3</span><span class="nm">Sync Squad · PKT-002</span><span class="sc">815</span></div>
+                <div class="lead"><span class="rk">4</span><span class="nm">Packet Racers · PKT-009</span><span class="sc">790</span></div>
+                <div class="lead"><span class="rk">5</span><span class="nm">Edge Cases · PKT-021</span><span class="sc">760</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="cap"><div class="ct"><span class="cn">A7</span>Leaderboard (present mode)</div><div class="cd">Full-bleed live ranking for the pavilion projection. Auto-updates as scores lock in.</div></div>
+      </div>
+
+      <!-- W8 Debrief -->
+      <div class="cell">
+        <div class="desktop">
+          <div class="chrome"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="url">rally.wso2.com/debrief</span></div>
+          <div class="screen">
+            <div class="nav">
+              <div class="brand"><div class="logo"></div><div class="bn">Rally Ops</div></div>
+              <div class="ni">Events</div><div class="ni">Routes</div><div class="ni">Tasks</div>
+              <div class="ni">Vehicles</div><div class="ni">Live Monitor</div><div class="ni">Leaderboard</div><div class="ni on">Debrief</div>
+            </div>
+            <div class="body">
+              <div class="pt">Video debrief · Day 1</div>
+              <div class="row wrap">
+                <div class="box" style="width:130px"><div style="height:60px;border-radius:6px;background:var(--surface-2);display:flex;align-items:center;justify-content:center;color:var(--faint);font-size:20px">▶</div><div class="bar m" style="margin-top:8px"></div><div class="lbl" style="margin-top:5px">PKT-001</div></div>
+                <div class="box" style="width:130px"><div style="height:60px;border-radius:6px;background:var(--surface-2);display:flex;align-items:center;justify-content:center;color:var(--faint);font-size:20px">▶</div><div class="bar m" style="margin-top:8px"></div><div class="lbl" style="margin-top:5px">PKT-002</div></div>
+                <div class="box" style="width:130px;border-style:dashed;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px">+ Upload</div>
+              </div>
+              <span class="lbl">Attach per-team clips · participants review after the event</span>
+            </div>
+          </div>
+        </div>
+        <div class="cap"><div class="ct"><span class="cn">A8</span>Video debrief</div><div class="cd">Attach and organize per-team video clips for the daily debrief session.</div></div>
+      </div>
+
+    </div>
+    </div>
+    <div class="annot">
+      <div class="al">Annotation · Web app</div>
+      <div class="ax">Login is Asgardeo (organizers only). Sidenav order mirrors the setup → run → review lifecycle. Live Monitor and Leaderboard share the same WebSocket stream from the Go backend.</div>
+    </div>
+  </section>
+
+  <!-- ============ MICRO APP ============ -->
+  <section>
+    <div class="sec-head">
+      <span class="sec-num">B</span>
+      <h2>Micro App — In-Car PWA</h2>
+      <span class="sec-note">Mobile portrait · one active phone · MUI · Web sensor APIs</span>
+    </div>
+    <div class="scroller">
+    <div class="grid">
+
+      <!-- M1 Init -->
+      <div class="cell">
+        <div class="phone"><div class="notch"></div>
+          <div class="pscreen">
+            <div class="statusbar"><span>9:41</span><span>▂▄▆ 🔋</span></div>
+            <div class="appbar"><div class="at">System init</div></div>
+            <div class="pbody">
+              <div class="plabel">Vehicle ID</div>
+              <div class="pinput">Select vehicle…<span class="cv">▾</span></div>
+              <div class="plabel">Crew nodes</div>
+              <div class="pinput">Navigator…<span class="cv">▾</span></div>
+              <div class="pinput">Node 2…<span class="cv">▾</span></div>
+              <div class="pinput">Node 3…<span class="cv">▾</span></div>
+              <div class="pinput">Node 4…<span class="cv">▾</span></div>
+              <div style="flex:1"></div>
+              <div class="pbtn">Bind vehicle</div>
+            </div>
+          </div>
+        </div>
+        <div class="cap" style="max-width:248px"><div class="ct"><span class="cn">B1</span>Initialization</div><div class="cd">Navigator binds vehicle ID + crew from dropdowns. Instant background DB bind — no registration form.</div></div>
+      </div>
+
+      <!-- M2 Geofence lock -->
+      <div class="cell">
+        <div class="phone"><div class="notch"></div>
+          <div class="pscreen">
+            <div class="statusbar"><span>9:41</span><span>▂▄▆ 🔋</span></div>
+            <div class="appbar"><div class="at">Start grid</div><div class="hdstat"><span class="hs"><span class="hsl">SCORE</span><span class="hsv">0</span></span><span class="hs"><span class="hsl">DONE</span><span class="hsv">0/15</span></span></div></div>
+            <div class="pbody center">
+              <div class="fullpad">
+                <div style="width:96px;height:96px;border-radius:50%;border:3px dashed var(--amber);background:var(--amber-wash);display:flex;align-items:center;justify-content:center;font-size:34px">📍</div>
+                <div style="font-weight:700;font-size:15px">Move into the start grid</div>
+                <div class="plabel">Interface locked · 62 m away</div>
+                <div class="box fill" style="width:100%;font-family:var(--font-mono);font-size:10px;color:var(--muted)">GPS 6.844, 79.928 · accuracy ±8m</div>
+              </div>
+              <div class="pbtn lock">🔒 Locked until inside grid</div>
+            </div>
+          </div>
+        </div>
+        <div class="cap" style="max-width:248px"><div class="ct"><span class="cn">B2</span>Geofence validation</div><div class="cd">Screen stays locked until GPS confirms the vehicle sits fully inside the startup grid boundary.</div></div>
+      </div>
+
+      <!-- M3 Countdown / cipher -->
+      <div class="cell">
+        <div class="phone"><div class="notch"></div>
+          <div class="pscreen">
+            <div class="statusbar"><span>9:00</span><span>▂▄▆ 🔋</span></div>
+            <div class="appbar"><div class="at">Sync sequence</div><div class="hdstat"><span class="hs"><span class="hsl">SCORE</span><span class="hsv">0</span></span><span class="hs"><span class="hsl">DONE</span><span class="hsv">0/15</span></span></div></div>
+            <div class="pbody center">
+              <div class="fullpad">
+                <div class="plabel">Auto-start countdown</div>
+                <div class="bignum" style="color:var(--accent)">00:07</div>
+                <div class="box" style="width:100%;border-color:var(--accent)">
+                  <div class="plabel" style="color:var(--accent-ink)">Route cipher</div>
+                  <div style="font-family:var(--font-mono);font-size:13px;margin-top:6px;letter-spacing:.05em">◇ 47°N // PKT → EDGE // decode leg 1</div>
+                </div>
+                <div class="plabel">Unlocks simultaneously on all 150 apps</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="cap" style="max-width:248px"><div class="ct"><span class="cn">B3</span>09:00 sync + cipher</div><div class="cd">Server-driven countdown. At 09:00 the cryptic route cipher reveals across every app at once.</div></div>
+      </div>
+
+      <!-- M4 Route / next leg -->
+      <div class="cell">
+        <div class="phone"><div class="notch"></div>
+          <div class="pscreen">
+            <div class="statusbar"><span>9:14</span><span>▂▄▆ 🔋</span></div>
+            <div class="appbar"><div class="at">Leg 3 · Piliyandala</div><div class="hdstat"><span class="hs"><span class="hsl">SCORE</span><span class="hsv">640</span></span><span class="hs"><span class="hsl">DONE</span><span class="hsv">5/15</span></span></div></div>
+            <div class="pbody">
+              <div class="map" style="border-radius:11px">
+                <div class="route" style="left:20px;top:40px;width:90px;transform:rotate(30deg)"></div>
+                <div class="route" style="left:100px;top:86px;width:80px;transform:rotate(-10deg)"></div>
+                <div class="node" style="left:16px;top:36px"></div>
+                <div class="node a" style="left:172px;top:70px"></div>
+                <div class="geo" style="left:154px;top:52px;width:40px;height:40px"></div>
+                <div class="pin" style="left:150px;top:96px">TASK 6 ▸</div>
+              </div>
+              <div class="box fill"><div class="row" style="justify-content:space-between"><span class="plabel">Next task</span><span class="chip acc">300 m</span></div>
+                <div style="font-weight:600;font-size:13px;margin-top:4px">Barcode Scan · local item</div></div>
+              <div class="box fill"><div class="row" style="justify-content:space-between"><span class="plabel">Distance to next</span><span class="chip">2.1 km</span></div>
+                <div class="plabel" style="margin-top:6px">Route 1 · Inland circuit</div></div>
+              <div class="pbtn ghost" style="border-color:var(--amber);color:var(--amber)">⚠ Report vehicle issue</div>
+            </div>
+          </div>
+        </div>
+        <div class="cap" style="max-width:248px"><div class="ct"><span class="cn">B4</span>Route &amp; next leg</div><div class="cd">Live map, distance to the next geofenced task, running score, and a Report vehicle issue button (always reachable).</div></div>
+      </div>
+
+      <!-- M5 Barcode scan -->
+      <div class="cell">
+        <div class="phone"><div class="notch"></div>
+          <div class="pscreen">
+            <div class="statusbar"><span>9:22</span><span>▂▄▆ 🔋</span></div>
+            <div class="appbar"><div class="at">Task 6 · Barcode</div><div class="hdstat"><span class="hs"><span class="hsl">SCORE</span><span class="hsv">640</span></span><span class="hs"><span class="hsl">DONE</span><span class="hsv">5/15</span></span></div></div>
+            <div class="pbody">
+              <div class="plabel">Scan the barcode of a local soda</div>
+              <div class="camera"><div class="reticle"></div></div>
+              <div class="pbtn ghost">Enter code manually</div>
+            </div>
+          </div>
+        </div>
+        <div class="cap" style="max-width:248px"><div class="ct"><span class="cn">B5</span>Sensor: camera / barcode</div><div class="cd">Live camera with barcode reticle. Match verified against the task payload in the backend.</div></div>
+      </div>
+
+      <!-- M6 Eco-driving telematics -->
+      <div class="cell">
+        <div class="phone"><div class="notch"></div>
+          <div class="pscreen">
+            <div class="statusbar"><span>9:30</span><span>▂▄▆ 🔋</span></div>
+            <div class="appbar"><div class="at">Task 4 · Eco-drive</div><div class="hdstat"><span class="hs"><span class="hsl">SCORE</span><span class="hsv">700</span></span><span class="hs"><span class="hsl">DONE</span><span class="hsv">6/15</span></span></div></div>
+            <div class="pbody">
+              <div class="plabel">10 km smooth-driving score</div>
+              <div class="gauge">
+                <div class="bignum" style="color:var(--green)">86</div>
+                <div class="plabel">efficiency index</div>
+                <div style="position:absolute;bottom:12px;font-family:var(--font-mono);font-size:9px;color:var(--muted)">hard stops 2 · sharp turns 1</div>
+              </div>
+              <div class="box fill" style="font-family:var(--font-mono);font-size:10px;color:var(--muted)">DeviceMotion accelerometer · km 6.2 / 10</div>
+            </div>
+          </div>
+        </div>
+        <div class="cap" style="max-width:248px"><div class="ct"><span class="cn">B6</span>Sensor: accelerometer</div><div class="cd">DeviceMotion tracks hard stops and cornering spikes to compute a live drive-efficiency score.</div></div>
+      </div>
+
+      <!-- M7 Cipher / multi-select input -->
+      <div class="cell">
+        <div class="phone"><div class="notch"></div>
+          <div class="pscreen">
+            <div class="statusbar"><span>9:38</span><span>▂▄▆ 🔋</span></div>
+            <div class="appbar"><div class="at">Task 1 · Cipher</div><div class="hdstat"><span class="hs"><span class="hsl">SCORE</span><span class="hsv">590</span></span><span class="hs"><span class="hsl">DONE</span><span class="hsv">4/15</span></span></div></div>
+            <div class="pbody">
+              <div class="box"><div class="plabel">Decode term</div><div style="font-weight:700;font-size:15px;margin-top:4px">“ගළපනය” → which WSO2 architecture equivalent?</div></div>
+              <div class="pinput" style="border-color:var(--accent);color:var(--ink)">API Integration<span class="cv" style="color:var(--accent)">◉</span></div>
+              <div class="pinput">Identity Federation<span class="cv">○</span></div>
+              <div class="pinput">Message Broker<span class="cv">○</span></div>
+              <div style="flex:1"></div>
+              <div class="pbtn">Submit answer</div>
+            </div>
+          </div>
+        </div>
+        <div class="cap" style="max-width:248px"><div class="ct"><span class="cn">B7</span>Input / multi-select task</div><div class="cd">Shared shell for cipher, arithmetic, trivia, crossword, gate-match — driven by the task definition.</div></div>
+      </div>
+
+      <!-- M8 Rest stop lock -->
+      <div class="cell">
+        <div class="phone"><div class="notch"></div>
+          <div class="pscreen">
+            <div class="statusbar"><span>9:52</span><span>▂▄▆ 🔋</span></div>
+            <div class="appbar"><div class="at">Task 12 · Rest</div><div class="hdstat"><span class="hs"><span class="hsl">SCORE</span><span class="hsv">720</span></span><span class="hs"><span class="hsl">DONE</span><span class="hsv">8/15</span></span></div></div>
+            <div class="pbody center">
+              <div class="fullpad">
+                <div style="font-size:40px">💧</div>
+                <div style="font-weight:700;font-size:15px">Mandatory hydration stop</div>
+                <div class="bignum" style="color:var(--amber);font-size:38px">04:38</div>
+                <div class="plabel">App locked · resumes automatically</div>
+              </div>
+              <div class="pbtn lock">🔒 Static until timer ends</div>
+            </div>
+          </div>
+        </div>
+        <div class="cap" style="max-width:248px"><div class="ct"><span class="cn">B8</span>Geofenced rest lock</div><div class="cd">Inside the rest-stop geofence the app locks static for 5 minutes, then auto-resumes.</div></div>
+      </div>
+
+      <!-- M9 Arrival / vouchers -->
+      <div class="cell">
+        <div class="phone"><div class="notch"></div>
+          <div class="pscreen">
+            <div class="statusbar"><span>10:31</span><span>▂▄▆ 🔋</span></div>
+            <div class="appbar"><div class="at">Pearl Bay 🏁</div><div class="hdstat"><span class="hs"><span class="hsl">SCORE</span><span class="hsv">920</span></span><span class="hs"><span class="hsl">DONE</span><span class="hsv">15/15</span></span></div></div>
+            <div class="pbody">
+              <div class="box" style="border-color:var(--green);background:var(--green-wash)">
+                <div class="plabel" style="color:var(--green)">Finished · score locked</div>
+                <div class="bignum" style="font-size:34px;color:var(--green)">920</div>
+                <div class="plabel">Rank 1 of 150 · time 01:31:04</div>
+              </div>
+              <div class="plabel">Digital vouchers</div>
+              <div class="box fill" style="display:flex;flex-direction:column;gap:7px;font-size:11px">
+                <div class="row" style="justify-content:space-between"><span>🎟 Entry code</span><span style="font-family:var(--font-mono)">PB-4417</span></div>
+                <div class="row" style="justify-content:space-between"><span>🔐 Locker</span><span style="font-family:var(--font-mono)">L-032</span></div>
+                <div class="row" style="justify-content:space-between"><span>🍱 Lunch pass</span><span style="font-family:var(--font-mono)">×4</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="cap" style="max-width:248px"><div class="ct"><span class="cn">B9</span>Arrival &amp; vouchers</div><div class="cd">Geofence entry auto-logs off and locks the score, then issues entry code, locker, and lunch passes.</div></div>
+      </div>
+
+      <!-- M10 Report vehicle issue -->
+      <div class="cell">
+        <div class="phone"><div class="notch"></div>
+          <div class="pscreen">
+            <div class="statusbar"><span>9:47</span><span>▂▄▆ 🔋</span></div>
+            <div class="appbar"><div class="at">⚠ Report issue</div><div class="hdstat"><span class="hs"><span class="hsl">SCORE</span><span class="hsv">640</span></span><span class="hs"><span class="hsl">DONE</span><span class="hsv">5/15</span></span></div></div>
+            <div class="pbody">
+              <div class="plabel">What's the problem?</div>
+              <div class="pinput" style="border-color:var(--amber);color:var(--ink)">🔧 Vehicle breakdown<span class="cv" style="color:var(--amber)">◉</span></div>
+              <div class="pinput">📱 Phone / device issue<span class="cv">○</span></div>
+              <div class="pinput">⚠ Other<span class="cv">○</span></div>
+              <div class="plabel" style="margin-top:2px">Add a note (optional)</div>
+              <div class="box fill" style="height:60px;color:var(--faint);font-size:11px">Flat tyre near Piliyandala junction…</div>
+              <div class="box fill" style="font-size:10px;color:var(--muted)">📍 Your live location is sent with the report</div>
+              <div style="flex:1"></div>
+              <div class="pbtn" style="background:var(--amber)">Send report to organizers</div>
+            </div>
+          </div>
+        </div>
+        <div class="cap" style="max-width:248px"><div class="ct"><span class="cn">B10</span>Report vehicle issue</div><div class="cd">Crew flags a breakdown or device issue; an alert with live location reaches organizers (A1 ⚠ Alerts, A6 monitor).</div></div>
+      </div>
+
+    </div>
+    </div>
+    <div class="annot">
+      <div class="al">Annotation · Micro app</div>
+      <div class="ax">No per-user login — the device binds to a vehicle + crew (screen B1) and holds a team token. Tasks share one screen shell whose body is chosen by task type. Sensor tasks use Geolocation, DeviceMotion, and camera/BarcodeDetector; BLE beacon tasks fall back to QR/geofence checkpoints on iOS Safari.</div>
+    </div>
+  </section>
+
+  <!-- ============ LEGEND ============ -->
+  <section>
+    <div class="sec-head"><span class="sec-num">KEY</span><h2>Legend &amp; task coverage</h2></div>
+    <div class="legend">
+      <div class="li"><span class="sw" style="background:var(--accent)"></span>Interactive / accent</div>
+      <div class="li"><span class="sw" style="background:var(--green)"></span>Complete / success</div>
+      <div class="li"><span class="sw" style="background:var(--amber)"></span>Locked / geofence / sensor</div>
+      <div class="li"><span class="sw" style="background:var(--bar)"></span>Placeholder content</div>
+      <div class="li"><span class="sw" style="border:1.5px dashed var(--amber);background:var(--amber-wash)"></span>Geofence boundary</div>
+      <div class="li"><span class="sw" style="border-radius:50%;background:var(--accent)"></span>Vehicle node</div>
+    </div>
+    <div class="tasks">
+      <div class="task"><div class="tn">TASK 1</div><div class="tt">Translation Cipher</div><div class="td">Decode local term → pick WSO2 architecture equivalent.</div></div>
+      <div class="task"><div class="tn">TASK 2</div><div class="tt">Signpost Arithmetic</div><div class="td">Read signpost digits, solve sequential equations.</div></div>
+      <div class="task"><div class="tn">TASK 3</div><div class="tt">Milestone Digit Scan</div><div class="td">Match path metrics to roadside markers.</div></div>
+      <div class="task"><div class="tn">TASK 4</div><div class="tt">Eco-Driving Telematics</div><div class="td">Accelerometer efficiency score over 10 km.</div><div class="sensor">▸ DeviceMotion</div></div>
+      <div class="task"><div class="tn">TASK 5</div><div class="tt">Precision Radius</div><div class="td">Auto-complete on crossing a 15 m boundary.</div><div class="sensor">▸ Geolocation</div></div>
+      <div class="task"><div class="tn">TASK 6</div><div class="tt">Barcode Scan</div><div class="td">Acquire local item, verify barcode payload.</div><div class="sensor">▸ Camera</div></div>
+      <div class="task"><div class="tn">TASK 7</div><div class="tt">Architectural Crossword</div><div class="td">Geography + product-parameter integration grid.</div></div>
+      <div class="task"><div class="tn">TASK 8</div><div class="tt">BLE Proximity Ping</div><div class="td">Beacon UUID at path — QR/geofence fallback.</div><div class="sensor">▸ QR / geofence*</div></div>
+      <div class="task"><div class="tn">TASK 9</div><div class="tt">Time-Locked Blind Count</div><div class="td">Screen hides; estimate 45 s before ping.</div></div>
+      <div class="task"><div class="tn">TASK 10</div><div class="tt">Cultural Multi-Select</div><div class="td">Trivia on passengers' native origins.</div></div>
+      <div class="task"><div class="tn">TASK 11</div><div class="tt">Dynamic Route Select</div><div class="td">Solve puzzle, or skip for a longer route.</div></div>
+      <div class="task"><div class="tn">TASK 12</div><div class="tt">Mandatory Static Rest</div><div class="td">Geofenced 5-min hydration lock.</div><div class="sensor">▸ Geolocation</div></div>
+      <div class="task"><div class="tn">TASK 13</div><div class="tt">Odometer Calibration</div><div class="td">Input mileage vs standard route distance.</div></div>
+      <div class="task"><div class="tn">TASK 14</div><div class="tt">Geofence Trivia</div><div class="td">Landmark popup trivia; closes after 30 s.</div><div class="sensor">▸ Geolocation</div></div>
+      <div class="task"><div class="tn">TASK 15</div><div class="tt">Sequence Gate Match</div><div class="td">Arrange logic-gate connectors to a data flow.</div></div>
+    </div>
+  </section>
+
+  <div class="foot">
+    <b>Next:</b> on your sign-off of these wireframes, I write the design spec (architecture, data model, API surface, task-engine, scoring, real-time), then an implementation plan mirroring customer-portal conventions — Go backend + React/Oxygen web app + React PWA micro app.
+  </div>
+</div>

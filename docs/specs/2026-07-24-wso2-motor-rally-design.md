@@ -59,7 +59,7 @@ We build three components, following the `customer-portal` tech stack, standards
    native `getToken()`; sensors come from Web APIs instead of native bridges. Every other microapp
    convention (zustand, axios client, `HashRouter`, `.dto.ts`/`.model.ts` split, `services/` with
    TanStack `queryOptions`, build-time env, MUI + Oxygen) is retained.
-3. **Backend owns its own data** (Postgres). customer-portal proxies downstream WSO2 services; our
+3. **Backend owns its own data** (MySQL). customer-portal proxies downstream WSO2 services; our
    domain packages are `handler → service → repository` rather than `handler → downstream client`.
 
 ---
@@ -74,7 +74,7 @@ We build three components, following the `customer-portal` tech stack, standards
                               │  REST  (Bearer id token + x-user-id-token)
                               │  WS    (monitor, leaderboard)
                  ┌────────────▼──────────────┐        ┌───────────────┐
-   In-car    ───▶│      Go Backend           │───────▶│  PostgreSQL   │
+   In-car    ───▶│      Go Backend           │───────▶│     MySQL     │
    phone (PWA)   │  chi REST :8080           │        └───────────────┘
                  │  WebSocket hub /ws        │
                  │  task-engine · scoring    │        ┌───────────────┐
@@ -102,7 +102,8 @@ Mirrors `apps/customer-portal/{backend,webapp,microapp}`, promoted to the repo r
 rally2026/
 ├── README.md                 Apache-2.0 header; setup for all three components
 ├── LICENSE                   Apache-2.0
-├── docs/superpowers/specs/   this spec + future specs
+├── docs/specs/               this spec + future specs
+├── docs/plans/               implementation + milestone plans
 ├── backend/                  Go
 │   ├── cmd/server/main.go            listener, router, middleware wiring  (≈ service.bal)
 │   ├── internal/
@@ -113,7 +114,7 @@ rally2026/
 │   │   ├── realtime/                 WebSocket hub, topics per event, broadcast
 │   │   ├── geo/                      haversine, point-in-radius geofence math
 │   │   ├── taskengine/               task-type registry + per-type validators + scoring
-│   │   ├── store/                    pgx pool, migrations, repository interfaces
+│   │   ├── store/                    database/sql (MySQL) pool, migrations, repository interfaces
 │   │   ├── events/                   handler.go · service.go · repo.go · types.go · constants.go
 │   │   ├── routes/                   routes + waypoints (+ reorder, + attach task ids)
 │   │   ├── tasks/                    task definitions (the 15)
@@ -141,7 +142,7 @@ Go module path (placeholder, adjust to the real repo): `github.com/wso2-open-ope
 
 ## 5. Data model
 
-Entities (PostgreSQL tables; all ids are 32-char lowercase hex to match customer-portal's `IdString`):
+Entities (MySQL tables; all ids are 32-char lowercase hex `CHAR(32)` to match customer-portal's `IdString`):
 
 - **event** — `id, name, event_date, start_time, status(setup|active|complete), start_label,
   start_lat, start_lng, start_radius_m, end_label, end_lat, end_lng, end_radius_m, created_by, created_on`.
@@ -149,7 +150,7 @@ Entities (PostgreSQL tables; all ids are 32-char lowercase hex to match customer
 - **waypoint** — `id, route_id, display_order, label, lat, lng, boundary_radius_m`.
   Reorderable (`display_order`); each has 0..n attached tasks via **waypoint_task** (`waypoint_id, task_id, display_order`).
 - **task** — `id, event_id, code(T1..T15), title, type(TaskType), trigger(geofence|sensor|choice|manual|timed),
-  points, sensor(none|geolocation|devicemotion|camera|qr), config(jsonb)`. `config` holds per-type
+  points, sensor(none|geolocation|devicemotion|camera|qr), config(JSON)`. `config` holds per-type
   parameters (cipher options, arithmetic operands, barcode payload, radius, timer seconds, gate spec, …).
 - **vehicle** — `id, event_id, code(PKT-001), team_name, vehicle_type(SUV|Sedan|Van|…), contact_number,
   route_id, status(ok|breakdown|device_issue)`.
@@ -157,8 +158,9 @@ Entities (PostgreSQL tables; all ids are 32-char lowercase hex to match customer
 - **team_session** — `id, event_id, vehicle_id, bound_at, started_at, finished_at,
   current_waypoint_id, total_score, status(bound|active|finished)`. One active session per vehicle.
 - **task_submission** — `id, session_id, task_id, waypoint_id, status(pending|completed|skipped),
-  payload(jsonb), awarded_points, submitted_at`. Unique on `(session_id, task_id)`.
-- **vehicle_alert** — `id, vehicle_id, type(breakdown|device_issue), note, raised_by, raised_at, resolved_at`.
+  payload(JSON), awarded_points, submitted_at`. Unique on `(session_id, task_id)`.
+- **vehicle_alert** — `id, vehicle_id, type(breakdown|device_issue|other), note, source(organizer|crew),
+  raised_by, lat, lng, raised_at, resolved_at`. Raised by an organizer (A5/A6) or by the crew from the micro app (B10).
 - **debrief_video** — `id, event_id, vehicle_id, day, object_key, uploaded_at`.
 - **voucher** — `id, session_id, entry_code, locker_id, lunch_passes`.
 
@@ -226,6 +228,8 @@ REST style mirrors customer-portal: resource paths, `POST /…/search` for lists
 - `POST /sessions/me/location` — `{ lat, lng, accuracy, ts }` → `{ unlockedTasks, events:[geofence|rest|trivia|arrival] }`
 - `GET /sessions/me/tasks` — task list + statuses · `GET /tasks/{id}` — definition to render
 - `POST /sessions/me/tasks/{taskId}/submit` — type payload → validated + scored result
+- `POST /sessions/me/alerts` — `{ type(breakdown|device_issue|other), note?, lat, lng }` → raises a vehicle alert (B10)
+  and broadcasts `alert` to organizers (drives A1 ⚠ Alerts + A6 monitor)
 - `POST /sessions/me/finish` — (also auto on arrival geofence) → locks score, issues vouchers
 - `GET /sessions/me/vouchers`
 
@@ -293,7 +297,8 @@ participant → re-bind screen). Apache-2.0 header on every source file (year 20
 
 ## 11. Backend conventions (Go, mirroring the Ballerina module split)
 
-- **Router:** `chi`. **WebSocket:** `coder/websocket`. **DB:** `pgx` + `golang-migrate`. **JWT:**
+- **Router:** `chi`. **WebSocket:** `coder/websocket`. **DB:** MySQL via `database/sql` +
+  `go-sql-driver/mysql` (+ `golang-migrate` for schema migrations). **JWT:**
   `golang-jwt/jwt v5` + JWKS via `MicahParks/keyfunc`. **Logging:** stdlib `log/slog` (DEBUG/INFO/WARN/ERROR,
   mirrors customer-portal `Logger`). **Config:** env-based `config` struct that validates required keys and
   errors clearly on missing (mirrors `apiConfig.ts`/`authConfig.ts` throwing).
@@ -331,7 +336,8 @@ import/export) · **A6** Live monitor (WebSocket) · **A7** Leaderboard (pavilio
 
 Micro app (in-car PWA, mobile): **B1** Initialization (vehicle + crew dropdowns) · **B2** Geofence lock ·
 **B3** 09:00 sync + cipher reveal · **B4** Route / next leg · **B5** Camera barcode · **B6** Accelerometer
-eco-drive · **B7** Input / multi-select shell · **B8** Rest-stop lock · **B9** Arrival + vouchers. All B-screens
+eco-drive · **B7** Input / multi-select shell · **B8** Rest-stop lock · **B9** Arrival + vouchers ·
+**B10** Report vehicle issue (breakdown / device / other, with live location). All B-screens
 show SCORE / DONE in the header (hidden on B1).
 
 ---
@@ -339,7 +345,7 @@ show SCORE / DONE in the header (hidden on B1).
 ## 14. Testing
 
 - **Backend:** Go `testing` + `httptest` for handlers; unit tests for `geo`, `taskengine` validators/scorers,
-  `scoring`; repository tests against a throwaway Postgres (docker) or `pgx` test container. Table-driven tests
+  `scoring`; repository tests against a throwaway MySQL (docker) test container. Table-driven tests
   per task type.
 - **Web app / micro app:** `vitest` + `@testing-library/react` (as customer-portal). Test task-shell rendering
   by type, the bind flow, geofence-lock gating, and API hooks with a mocked client.
@@ -350,8 +356,8 @@ show SCORE / DONE in the header (hidden on B1).
 
 ## 15. Open assumptions (flag if wrong before/while planning)
 
-1. **PostgreSQL** as the datastore (Choreo-provisioned; docker for local). Alternative for a lighter MVP is
-   SQLite — repository interface keeps it swappable.
+1. **MySQL** as the datastore (Choreo-provisioned or managed; docker for local). The repository interface
+   keeps the store swappable. JSON columns hold per-task `config` and submission `payload`.
 2. **Leaflet + OpenStreetMap** for maps (no API key). If a Google Maps key is available, we can switch.
 3. **Content authoring** (cipher terms, arithmetic operands, crossword grid, trivia, barcode payloads) is
    entered by organizers via the Task library (A4) `config`; no bulk-authoring tooling in the MVP.
