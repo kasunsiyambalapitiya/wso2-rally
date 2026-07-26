@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/alerts"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/authz"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/config"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/events"
@@ -67,6 +68,10 @@ func newRouter(d deps) http.Handler {
 	// breakdown is raised.
 	vehiclesService := vehicles.NewService(vehicles.NewRepo(d.db))
 
+	// Alerts move a vehicle's status and, once the hub exists, push to the
+	// organizer's live monitor.
+	alertsService := alerts.NewService(alerts.NewRepo(d.db), vehiclesService, nil)
+
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Auth(d.cfg, d.organizer))
 
@@ -79,6 +84,7 @@ func newRouter(d deps) http.Handler {
 			routes.NewHandler(routes.NewService(routes.NewRepo(d.db)), d.logger).Register(r)
 			tasksHandler.Register(r)
 			vehicles.NewHandler(vehiclesService, d.logger).Register(r)
+			alerts.NewHandler(alertsService, d.logger).Register(r)
 		})
 	})
 
