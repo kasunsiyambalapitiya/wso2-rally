@@ -20,7 +20,9 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"flag"
 	"log/slog"
 	"net/http"
 	"os"
@@ -31,6 +33,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/config"
+	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/store"
 )
 
 const (
@@ -48,6 +51,9 @@ func main() {
 }
 
 func run() error {
+	migrateOnly := flag.Bool("migrate", false, "apply database migrations and exit")
+	flag.Parse()
+
 	cfg, err := config.Load()
 	if err != nil {
 		return err
@@ -55,6 +61,22 @@ func run() error {
 
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.SlogLevel()}))
 	slog.SetDefault(logger)
+
+	db, err := store.Open(cfg.DBDsn)
+	if err != nil {
+		return err
+	}
+	defer closeDB(db, logger)
+
+	// The schema is applied on every boot so a fresh Choreo deployment is
+	// usable without a separate migration step.
+	if err := store.Migrate(db); err != nil {
+		return err
+	}
+	logger.Info("database migrations applied")
+	if *migrateOnly {
+		return nil
+	}
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
@@ -89,6 +111,14 @@ func run() error {
 	logger.Info("server stopped")
 
 	return nil
+}
+
+// closeDB releases the pool on shutdown, logging rather than swallowing a
+// close failure.
+func closeDB(db *sql.DB, logger *slog.Logger) {
+	if err := db.Close(); err != nil {
+		logger.Error("failed to close database pool", "error", err)
+	}
 }
 
 // newRouter builds the HTTP routing tree. GET /health is deliberately
