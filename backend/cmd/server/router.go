@@ -30,6 +30,7 @@ import (
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/middleware"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/routes"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/tasks"
+	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/vehicles"
 )
 
 // deps is everything the routing tree needs. Building it in one place keeps
@@ -62,6 +63,10 @@ func newRouter(d deps) http.Handler {
 	// render a task body, using the same endpoint the organizer edits through.
 	tasksHandler := tasks.NewHandler(tasks.NewService(tasks.NewRepo(d.db)), d.logger)
 
+	// Shared by the alerts domain, which flips a vehicle's status when a
+	// breakdown is raised.
+	vehiclesService := vehicles.NewService(vehicles.NewRepo(d.db))
+
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Auth(d.cfg, d.organizer))
 
@@ -73,6 +78,7 @@ func newRouter(d deps) http.Handler {
 			events.NewHandler(events.NewService(events.NewRepo(d.db)), d.logger).Register(r)
 			routes.NewHandler(routes.NewService(routes.NewRepo(d.db)), d.logger).Register(r)
 			tasksHandler.Register(r)
+			vehicles.NewHandler(vehiclesService, d.logger).Register(r)
 		})
 	})
 
