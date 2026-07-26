@@ -58,6 +58,11 @@ type Repo interface {
 	CrewSizeOf(ctx context.Context, vehicleID string) (int, error)
 	// VehicleCodeOf is used to label live-monitor broadcasts.
 	VehicleCodeOf(ctx context.Context, vehicleID string) (string, error)
+	// SubmittableTaskOf loads the definition needed to score an attempt.
+	SubmittableTaskOf(ctx context.Context, taskID string) (SubmittableTask, error)
+	// SaveSubmission stores an attempt and returns the session's recomputed
+	// total, so a resubmission corrects the score instead of adding to it.
+	SaveSubmission(ctx context.Context, sub Submission) (int, error)
 }
 
 // AlertRaiser is the slice of the alerts service this package needs, so a crew

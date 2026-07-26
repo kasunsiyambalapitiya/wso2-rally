@@ -17,6 +17,7 @@
 package sessions
 
 import (
+	"encoding/json"
 	"log/slog"
 	"net/http"
 
@@ -51,6 +52,7 @@ func (h *Handler) RegisterTeam(r chi.Router) {
 	r.Get("/sessions/me", h.state)
 	r.Post("/sessions/me/location", h.ping)
 	r.Get("/sessions/me/tasks", h.listTasks)
+	r.Post("/sessions/me/tasks/{taskId}/submit", h.submitTask)
 	r.Post("/sessions/me/alerts", h.raiseAlert)
 	r.Post("/sessions/me/finish", h.finish)
 	r.Get("/sessions/me/vouchers", h.vouchers)
@@ -127,6 +129,33 @@ func (h *Handler) listTasks(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpx.WriteJSON(w, http.StatusOK, toTaskStateDTOs(states))
+}
+
+// submitTask scores one attempt. The payload shape is per task type, so it is
+// passed through to the engine untouched.
+func (h *Handler) submitTask(w http.ResponseWriter, r *http.Request) {
+	sessionID, ok := sessionIDFrom(w, r)
+	if !ok {
+		return
+	}
+
+	var payload json.RawMessage
+	if err := httpx.DecodeJSON(r, &payload); err != nil {
+		httpx.WriteBadRequest(w, err)
+		return
+	}
+
+	result, err := h.service.SubmitTask(r.Context(), sessionID, chi.URLParam(r, "taskId"), payload)
+	if err != nil {
+		httpx.WriteDomainError(w, r, h.logger, err)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, SubmitResultDTO{
+		Correct:       result.Correct,
+		AwardedPoints: result.AwardedPoints,
+		Detail:        result.Detail,
+	})
 }
 
 func (h *Handler) raiseAlert(w http.ResponseWriter, r *http.Request) {

@@ -120,6 +120,13 @@ type CrewAlertRequest struct {
 	Lng  *float64 `json:"lng"`
 }
 
+// SubmitResultDTO is the scored outcome of one task attempt.
+type SubmitResultDTO struct {
+	Correct       bool   `json:"correct"`
+	AwardedPoints int    `json:"awardedPoints"`
+	Detail        string `json:"detail"`
+}
+
 // VoucherDTO is what the crew collects at Pearl Bay.
 type VoucherDTO struct {
 	EntryCode   string `json:"entryCode"`

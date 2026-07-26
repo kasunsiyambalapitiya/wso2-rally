@@ -18,6 +18,7 @@ package sessions
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -38,20 +39,31 @@ const (
 // fakeRepo is an in-memory Repo. It enforces the one-live-session rule the
 // real schema enforces with a unique index.
 type fakeRepo struct {
-	sessions   map[string]Session
-	vouchers   map[string]Voucher
-	event      EventInfo
-	waypoints  []WaypointGeo
-	routeID    string
-	crew       []string
-	taskStates []TaskState
-	noVehicle  bool
+	sessions    map[string]Session
+	vouchers    map[string]Voucher
+	event       EventInfo
+	waypoints   []WaypointGeo
+	routeID     string
+	crew        []string
+	taskStates  []TaskState
+	noVehicle   bool
+	submittable map[string]SubmittableTask
+	totals      map[string]int
+	submissions map[string]map[string]int
 }
 
 func newFakeRepo() *fakeRepo {
 	return &fakeRepo{
 		sessions: map[string]Session{},
 		vouchers: map[string]Voucher{},
+		totals:   map[string]int{},
+		submittable: map[string]SubmittableTask{
+			"task-1": {
+				ID: "task-1", EventID: testEventID, Code: "T1",
+				Type: tasks.TypeInputSelect, Points: 50,
+				Config: json.RawMessage(`{"answer":"API Integration"}`),
+			},
+		},
 		event: EventInfo{
 			Status:    "active",
 			Cipher:    "API Integration",
@@ -133,6 +145,34 @@ func (f *fakeRepo) VoucherOf(_ context.Context, sessionID string) (Voucher, erro
 func (f *fakeRepo) CrewSizeOf(context.Context, string) (int, error) { return len(f.crew), nil }
 
 func (f *fakeRepo) VehicleCodeOf(context.Context, string) (string, error) { return "PKT-001", nil }
+
+func (f *fakeRepo) SubmittableTaskOf(_ context.Context, taskID string) (SubmittableTask, error) {
+	task, ok := f.submittable[taskID]
+	if !ok {
+		return SubmittableTask{}, ErrTaskNotOnThisRally
+	}
+	return task, nil
+}
+
+// SaveSubmission mirrors the real repository: the total is recomputed from the
+// stored attempts, so a resubmission replaces rather than adds.
+func (f *fakeRepo) SaveSubmission(_ context.Context, sub Submission) (int, error) {
+	if f.submissions == nil {
+		f.submissions = map[string]map[string]int{}
+	}
+	if f.submissions[sub.SessionID] == nil {
+		f.submissions[sub.SessionID] = map[string]int{}
+	}
+	f.submissions[sub.SessionID][sub.TaskID] = sub.AwardedPoints
+
+	total := 0
+	for _, points := range f.submissions[sub.SessionID] {
+		total += points
+	}
+	f.totals[sub.SessionID] = total
+
+	return total, nil
+}
 
 // stubMinter issues a predictable token so tests can assert it reached the
 // caller without decoding a JWT.

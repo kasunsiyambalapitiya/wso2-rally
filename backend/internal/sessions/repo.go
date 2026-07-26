@@ -338,6 +338,72 @@ func (r *sqlRepo) VehicleCodeOf(ctx context.Context, vehicleID string) (string, 
 	return code, nil
 }
 
+func (r *sqlRepo) SubmittableTaskOf(ctx context.Context, taskID string) (SubmittableTask, error) {
+	const query = "SELECT id, event_id, code, type, points, config FROM task WHERE id = ?"
+
+	var (
+		task     SubmittableTask
+		taskType string
+		config   []byte
+	)
+	err := r.db.QueryRowContext(ctx, query, taskID).
+		Scan(&task.ID, &task.EventID, &task.Code, &taskType, &task.Points, &config)
+	if errors.Is(err, sql.ErrNoRows) {
+		return SubmittableTask{}, ErrTaskNotOnThisRally
+	}
+	if err != nil {
+		return SubmittableTask{}, fmt.Errorf("select task %s: %w", taskID, err)
+	}
+
+	task.Type = tasks.TaskType(taskType)
+	task.Config = config
+
+	return task, nil
+}
+
+// SaveSubmission upserts the attempt and recomputes the session total in one
+// transaction, so the score and the submissions it is derived from can never
+// disagree.
+func (r *sqlRepo) SaveSubmission(ctx context.Context, sub Submission) (int, error) {
+	const upsert = `
+		INSERT INTO task_submission
+			(id, session_id, task_id, waypoint_id, status, payload, awarded_points, submitted_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE
+			waypoint_id = VALUES(waypoint_id),
+			status = VALUES(status),
+			payload = VALUES(payload),
+			awarded_points = VALUES(awarded_points),
+			submitted_at = VALUES(submitted_at)`
+
+	const recompute = `
+		UPDATE team_session
+		SET total_score = (SELECT COALESCE(SUM(awarded_points), 0) FROM task_submission WHERE session_id = ?)
+		WHERE id = ?`
+
+	var total int
+	err := store.InTx(ctx, r.db, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, upsert,
+			sub.ID, sub.SessionID, sub.TaskID, sub.WaypointID, sub.Status,
+			[]byte(sub.Payload), sub.AwardedPoints, sub.SubmittedAt)
+		if err != nil {
+			return fmt.Errorf("upsert submission: %w", err)
+		}
+
+		if _, err := tx.ExecContext(ctx, recompute, sub.SessionID, sub.SessionID); err != nil {
+			return fmt.Errorf("recompute session score: %w", err)
+		}
+
+		return tx.QueryRowContext(ctx,
+			"SELECT total_score FROM team_session WHERE id = ?", sub.SessionID).Scan(&total)
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	return total, nil
+}
+
 // rowScanner is satisfied by both *sql.Row and *sql.Rows.
 type rowScanner interface {
 	Scan(dest ...any) error
