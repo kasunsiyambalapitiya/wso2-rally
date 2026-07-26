@@ -44,7 +44,19 @@ make lint              # gofmt + go vet
 Tests that need a database read `TEST_DB_DSN` and call `t.Skip` when it is
 unset, so `go test ./...` stays green on a machine without Docker. **A green
 `make test` therefore does not mean the SQL was exercised** — run
-`make test-integration` before trusting a schema or repository change.
+`make test-integration` before trusting a schema or repository change. That
+target passes `-count=1`, because a cached `ok` from a run without a database
+would otherwise report success for tests that skipped.
+
+DB-backed tests hold a MySQL advisory lock (`wso2_rally_test`) for their
+duration, so they run one at a time. `go test ./...` runs package binaries in
+parallel and they all share one database; without the lock, one package's
+truncation wipes rows another has just seeded. Per-database isolation would be
+faster, but the compose-provisioned user cannot `CREATE DATABASE`.
+
+`make docker-db` picks `docker compose` or `nerdctl compose`, whichever the
+machine has — Rancher Desktop in containerd mode has no dockerd for
+`docker compose` to talk to.
 
 ## The two identities
 
