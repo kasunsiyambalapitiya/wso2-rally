@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/alerts"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/authz"
@@ -39,6 +40,11 @@ const (
 
 // scoreDeltaType is the message that makes the leaderboard stale.
 const scoreDeltaType = "score_delta"
+
+// leaderboardRefreshTimeout bounds the query behind a leaderboard refresh.
+// The refresh runs on the crew's submit request, so an unbounded one would
+// hold up the car rather than just the pavilion screen.
+const leaderboardRefreshTimeout = 5 * time.Second
 
 // wsHandler upgrades /ws?topic=... after checking the caller is allowed to
 // listen to that topic.
@@ -95,7 +101,12 @@ func newSessionBroadcaster(hub *realtime.Hub, scores *scoring.Service, logger *s
 			return
 		}
 
-		entries, err := scores.Leaderboard(context.Background(), eventID)
+		// Deliberately not the request context: the pavilion screen still
+		// needs the new standings even if the crew's phone has hung up.
+		ctx, cancel := context.WithTimeout(context.Background(), leaderboardRefreshTimeout)
+		defer cancel()
+
+		entries, err := scores.Leaderboard(ctx, eventID)
 		if err != nil {
 			logger.Error("failed to refresh the leaderboard after a score change",
 				"error", err, "event_id", eventID)

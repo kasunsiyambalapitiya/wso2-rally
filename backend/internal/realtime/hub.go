@@ -28,6 +28,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -62,7 +63,10 @@ type Hub struct {
 	originPatterns []string
 	// dropped counts messages shed from full buffers, so a struggling client
 	// is visible in the logs rather than silently lossy.
-	dropped int64
+	//
+	// It is atomic because Broadcast counts under a *read* lock, which several
+	// request handlers hold at once.
+	dropped atomic.Int64
 }
 
 // NewHub returns an empty hub.
@@ -138,7 +142,7 @@ func (h *Hub) Broadcast(topic string, message any) {
 		select {
 		case sub.messages <- encoded:
 		default:
-			h.dropped++
+			h.dropped.Add(1)
 			h.logger.Warn("dropped a broadcast to a slow subscriber", "topic", topic)
 		}
 	}
@@ -155,10 +159,7 @@ func (h *Hub) SubscriberCount(topic string) int {
 
 // Dropped reports how many messages have been shed from full buffers.
 func (h *Hub) Dropped() int64 {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-
-	return h.dropped
+	return h.dropped.Load()
 }
 
 // ServeWS upgrades the request and streams the topic to it until the client
