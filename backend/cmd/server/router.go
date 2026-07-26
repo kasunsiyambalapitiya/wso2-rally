@@ -30,6 +30,7 @@ import (
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/httpx"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/middleware"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/routes"
+	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/sessions"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/tasks"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/vehicles"
 )
@@ -72,8 +73,32 @@ func newRouter(d deps) http.Handler {
 	// organizer's live monitor.
 	alertsService := alerts.NewService(alerts.NewRepo(d.db), vehiclesService, nil)
 
+	// The in-car runtime mints its own team tokens at bind time and files crew
+	// reports through the same alerts service organizers use.
+	sessionsHandler := sessions.NewHandler(sessions.NewService(
+		sessions.NewRepo(d.db),
+		sessions.HMACTokenMinter{Secret: d.cfg.TeamTokenSecret, TTL: d.cfg.TeamTokenTTL},
+		alertsService,
+		nil,
+	), d.logger)
+
+	// Binding runs before a crew has any credential: it is what issues one.
+	sessionsHandler.RegisterPublic(r)
+
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Auth(d.cfg, d.organizer))
+
+		// Readable by either identity. Mounted above the role gates because
+		// chi cannot carry the same path in two sibling groups; the handler
+		// strips the answers when the caller is a crew.
+		tasksHandler.RegisterShared(r)
+
+		// In-car surface.
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.RequireTeam)
+
+			sessionsHandler.RegisterTeam(r)
+		})
 
 		// Organizer surface.
 		r.Group(func(r chi.Router) {
