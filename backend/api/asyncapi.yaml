@@ -1,0 +1,252 @@
+# Copyright (c) 2026 WSO2 LLC. (https://www.wso2.com).
+# Licensed under the Apache License, Version 2.0.
+asyncapi: 2.6.0
+
+info:
+  title: WSO2 Motor Rally — Live Updates
+  version: 1.0.0
+  description: |
+    One WebSocket endpoint, `GET /ws?topic=...`, shared by both identities.
+
+    Authentication is the same bearer token the REST API takes, and the server
+    checks the caller may listen to the topic before upgrading: an organizer
+    may watch any topic of their rally, a crew may watch only its own session.
+    The session topic carries the cipher reveal and the event topic carries
+    every other team's position, so neither is open to the wrong caller.
+
+    Delivery is best-effort. A client that stops reading loses messages rather
+    than blocking the crew whose submission produced them, so a reconnecting
+    screen should refetch `GET /events/{eventId}/monitor` or
+    `GET /events/{eventId}/leaderboard` rather than assume continuity.
+
+    Clients never send frames; anything received from them is discarded.
+
+servers:
+  production:
+    url: wss://{host}/ws
+    protocol: wss
+    variables:
+      host:
+        description: The Choreo gateway host.
+        default: rally.choreoapis.dev
+
+channels:
+  "event:{eventId}":
+    description: |
+      The organizer's live view of one rally. Requires an organizer token.
+    parameters:
+      eventId:
+        description: The event's 32-character hex id.
+        schema:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+    subscribe:
+      operationId: watchEvent
+      message:
+        oneOf:
+          - $ref: "#/components/messages/VehiclePosition"
+          - $ref: "#/components/messages/TaskCompleted"
+          - $ref: "#/components/messages/ScoreDelta"
+          - $ref: "#/components/messages/Leaderboard"
+          - $ref: "#/components/messages/Alert"
+
+  "session:{sessionId}":
+    description: |
+      One in-car phone's channel. A crew may subscribe only to the session its
+      own team token names.
+    parameters:
+      sessionId:
+        description: The session's 32-character hex id.
+        schema:
+          type: string
+          pattern: "^[0-9a-f]{32}$"
+    subscribe:
+      operationId: watchSession
+      message:
+        oneOf:
+          - $ref: "#/components/messages/StartSignal"
+          - $ref: "#/components/messages/CipherReveal"
+          - $ref: "#/components/messages/RestLock"
+          - $ref: "#/components/messages/Arrival"
+
+components:
+  messages:
+    VehiclePosition:
+      name: vehicle_position
+      summary: A vehicle reported a new position.
+      payload:
+        type: object
+        required: [type, vehicleCode, lat, lng]
+        properties:
+          type:
+            type: string
+            const: vehicle_position
+          vehicleCode:
+            type: string
+            example: PKT-001
+          lat:
+            type: number
+            format: double
+          lng:
+            type: number
+            format: double
+
+    TaskCompleted:
+      name: task_completed
+      summary: A crew answered a task correctly.
+      payload:
+        type: object
+        required: [type, vehicleCode, taskCode]
+        properties:
+          type:
+            type: string
+            const: task_completed
+          vehicleCode:
+            type: string
+          taskCode:
+            type: string
+            example: T1
+
+    ScoreDelta:
+      name: score_delta
+      summary: |
+        A team's score changed. `delta` may be negative when a crew takes the
+        BRANCH shortcut, and `total` is the authoritative running score.
+      payload:
+        type: object
+        required: [type, vehicleCode, delta, total]
+        properties:
+          type:
+            type: string
+            const: score_delta
+          vehicleCode:
+            type: string
+          delta:
+            type: integer
+          total:
+            type: integer
+
+    Leaderboard:
+      name: leaderboard
+      summary: |
+        The recomputed standings, sent after every score change so the pavilion
+        screen never has to poll.
+      payload:
+        type: object
+        required: [type, entries]
+        properties:
+          type:
+            type: string
+            const: leaderboard
+          entries:
+            type: array
+            items:
+              type: object
+              properties:
+                Rank:
+                  type: integer
+                VehicleCode:
+                  type: string
+                TeamName:
+                  type: string
+                TotalScore:
+                  type: integer
+                FinishTime:
+                  type: string
+                  format: date-time
+                  nullable: true
+
+    Alert:
+      name: alert
+      summary: A vehicle problem was raised or resolved.
+      payload:
+        type: object
+        required: [type, alert]
+        properties:
+          type:
+            type: string
+            const: alert
+          alert:
+            type: object
+            properties:
+              id:
+                type: string
+              vehicleId:
+                type: string
+              type:
+                type: string
+                enum: [breakdown, device_issue, other]
+              note:
+                type: string
+              source:
+                type: string
+                enum: [organizer, crew]
+              lat:
+                type: number
+                nullable: true
+              lng:
+                type: number
+                nullable: true
+              raisedAt:
+                type: string
+                format: date-time
+              resolvedAt:
+                type: string
+                format: date-time
+                nullable: true
+
+    StartSignal:
+      name: start_signal
+      summary: The synchronised 09:00 start. Every bound phone releases at once.
+      payload:
+        type: object
+        required: [type]
+        properties:
+          type:
+            type: string
+            const: start_signal
+
+    CipherReveal:
+      name: cipher_reveal
+      summary: |
+        The rally cipher, withheld until the start. It is also readable from
+        `GET /sessions/me` once the event is active, for a phone that missed
+        the frame.
+      payload:
+        type: object
+        required: [type, cipher]
+        properties:
+          type:
+            type: string
+            const: cipher_reveal
+          cipher:
+            type: string
+            example: API Integration
+
+    RestLock:
+      name: rest_lock
+      summary: |
+        The crew entered a mandatory rest stop. The app locks its screen until
+        the rest task is submitted.
+      payload:
+        type: object
+        required: [type, taskId]
+        properties:
+          type:
+            type: string
+            const: rest_lock
+          taskId:
+            type: string
+
+    Arrival:
+      name: arrival
+      summary: |
+        The crew reached the finish geofence. Their score is locked and their
+        voucher issued; the app switches to the arrival screen.
+      payload:
+        type: object
+        required: [type]
+        properties:
+          type:
+            type: string
+            const: arrival

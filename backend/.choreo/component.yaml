@@ -1,0 +1,21 @@
+# Copyright (c) 2026 WSO2 LLC. (https://www.wso2.com).
+# Licensed under the Apache License, Version 2.0.
+#
+# Choreo component descriptor for the WSO2 Motor Rally backend.
+#
+# The REST API and the WebSocket endpoint share one listener on port 8080:
+# /ws upgrades in place, so it needs no separate service definition. The
+# gateway terminates TLS and validates organizer tokens; team tokens are
+# minted and verified by this service.
+schemaVersion: 1.2
+
+endpoints:
+  - name: rally-rest
+    displayName: Rally REST API
+    service:
+      basePath: /
+      port: 8080
+    type: REST
+    networkVisibilities:
+      - Public
+    schemaFilePath: api/openapi.yaml
