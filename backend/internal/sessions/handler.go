@@ -221,7 +221,7 @@ func (h *Handler) vouchers(w http.ResponseWriter, r *http.Request) {
 func sessionIDFrom(w http.ResponseWriter, r *http.Request) (string, bool) {
 	identity, ok := authz.IdentityFrom(r.Context())
 	if !ok || !identity.IsTeam() || identity.SessionID == "" {
-		httpx.WriteError(w, http.StatusUnauthorized, httpx.MsgUnauthorized)
+		httpx.WriteUnauthorized(w)
 		return "", false
 	}
 

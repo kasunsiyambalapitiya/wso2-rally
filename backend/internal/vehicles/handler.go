@@ -66,7 +66,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httpx.WriteJSON(w, http.StatusCreated, toDTO(vehicle))
+	httpx.WriteCreated(w, "/vehicles/"+vehicle.ID, toDTO(vehicle))
 }
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {

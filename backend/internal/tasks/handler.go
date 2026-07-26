@@ -67,7 +67,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httpx.WriteJSON(w, http.StatusCreated, toDTO(task))
+	httpx.WriteCreated(w, "/tasks/"+task.ID, toDTO(task))
 }
 
 // get returns a task definition. Crews read the same endpoint to render a task

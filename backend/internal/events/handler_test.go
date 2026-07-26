@@ -222,3 +222,14 @@ func messageOf(t *testing.T, rr *httptest.ResponseRecorder) string {
 
 	return body.Message
 }
+
+func TestHandler_Create_PointsAtTheNewEvent(t *testing.T) {
+	h, _ := newTestHandler(t)
+
+	rr := do(t, h, http.MethodPost, "/events", createBody)
+
+	require.Equal(t, http.StatusCreated, rr.Code)
+	var got EventDTO
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &got))
+	require.Equal(t, "/events/"+got.ID, rr.Header().Get("Location"))
+}

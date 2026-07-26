@@ -193,3 +193,19 @@ func messageOf(t *testing.T, rr *httptest.ResponseRecorder) string {
 
 	return body.Message
 }
+
+func TestAuth_401CarriesTheBearerChallenge(t *testing.T) {
+	rr := serve(t, Auth(testConfig(), rejectingValidator()), nil, "")
+
+	require.Equal(t, http.StatusUnauthorized, rr.Code)
+	require.Equal(t, `Bearer realm="rally"`, rr.Header().Get("WWW-Authenticate"))
+}
+
+// A 403 is not a challenge: the caller authenticated fine, they just may not
+// touch this resource.
+func TestRequireOrganizer_403HasNoChallenge(t *testing.T) {
+	rr := serveWithIdentity(t, RequireOrganizer, authz.Identity{Kind: authz.KindTeam, SessionID: "s"})
+
+	require.Equal(t, http.StatusForbidden, rr.Code)
+	require.Empty(t, rr.Header().Get("WWW-Authenticate"))
+}

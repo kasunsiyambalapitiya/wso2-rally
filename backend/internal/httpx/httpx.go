@@ -82,6 +82,25 @@ func WriteError(w http.ResponseWriter, status int, msg string) {
 	WriteJSON(w, status, errorBody{Message: msg})
 }
 
+// WriteCreated writes a 201 and points the client at the new resource, so a
+// caller can follow up without reassembling the URL itself.
+func WriteCreated(w http.ResponseWriter, location string, v any) {
+	if location != "" {
+		w.Header().Set("Location", location)
+	}
+	WriteJSON(w, http.StatusCreated, v)
+}
+
+// WriteUnauthorized writes a 401 with the challenge RFC 7235 requires.
+//
+// A 401 without WWW-Authenticate leaves the client guessing how to
+// authenticate, and makes the response indistinguishable from a 403 to any
+// generic HTTP client.
+func WriteUnauthorized(w http.ResponseWriter) {
+	w.Header().Set("WWW-Authenticate", `Bearer realm="rally"`)
+	WriteError(w, http.StatusUnauthorized, MsgUnauthorized)
+}
+
 // WriteNoContent ends a request that has nothing to return.
 func WriteNoContent(w http.ResponseWriter) {
 	w.WriteHeader(http.StatusNoContent)

@@ -65,7 +65,7 @@ func (h *Handler) createRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httpx.WriteJSON(w, http.StatusCreated, toRouteDTO(route))
+	httpx.WriteCreated(w, "/routes/"+route.ID, toRouteDTO(route))
 }
 
 func (h *Handler) listRoutes(w http.ResponseWriter, r *http.Request) {
@@ -126,7 +126,7 @@ func (h *Handler) addWaypoint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httpx.WriteJSON(w, http.StatusCreated, toWaypointDTO(waypoint))
+	httpx.WriteCreated(w, "/waypoints/"+waypoint.ID, toWaypointDTO(waypoint))
 }
 
 func (h *Handler) updateWaypoint(w http.ResponseWriter, r *http.Request) {

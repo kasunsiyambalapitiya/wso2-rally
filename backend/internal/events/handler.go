@@ -77,7 +77,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httpx.WriteJSON(w, http.StatusCreated, toDTO(event))
+	httpx.WriteCreated(w, "/events/"+event.ID, toDTO(event))
 }
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {

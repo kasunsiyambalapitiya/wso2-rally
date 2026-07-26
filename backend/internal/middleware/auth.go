@@ -46,7 +46,7 @@ func Auth(cfg config.Config, organizer OrganizerValidator) func(http.Handler) ht
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			raw, ok := bearerToken(r)
 			if !ok {
-				httpx.WriteError(w, http.StatusUnauthorized, httpx.MsgUnauthorized)
+				httpx.WriteUnauthorized(w)
 				return
 			}
 
@@ -55,7 +55,7 @@ func Auth(cfg config.Config, organizer OrganizerValidator) func(http.Handler) ht
 				identity, err = organizer.Validate(raw)
 			}
 			if err != nil {
-				httpx.WriteError(w, http.StatusUnauthorized, httpx.MsgUnauthorized)
+				httpx.WriteUnauthorized(w)
 				return
 			}
 
@@ -82,7 +82,7 @@ func RequireAdmin(cfg config.Config) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			identity, ok := authz.IdentityFrom(r.Context())
 			if !ok {
-				httpx.WriteError(w, http.StatusUnauthorized, httpx.MsgUnauthorized)
+				httpx.WriteUnauthorized(w)
 				return
 			}
 			if !identity.IsOrganizer() || !authz.CheckRoles([]string{cfg.AdminRole}, identity.Groups) {
@@ -99,7 +99,7 @@ func requireKind(kind authz.Kind, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		identity, ok := authz.IdentityFrom(r.Context())
 		if !ok {
-			httpx.WriteError(w, http.StatusUnauthorized, httpx.MsgUnauthorized)
+			httpx.WriteUnauthorized(w)
 			return
 		}
 		if identity.Kind != kind {
