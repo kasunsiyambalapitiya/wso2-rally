@@ -30,6 +30,7 @@ import (
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/events"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/httpx"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/middleware"
+	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/realtime"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/routes"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/scoring"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/sessions"
@@ -71,24 +72,33 @@ func newRouter(d deps) http.Handler {
 	// breakdown is raised.
 	vehiclesService := vehicles.NewService(vehicles.NewRepo(d.db))
 
-	// Alerts move a vehicle's status and, once the hub exists, push to the
-	// organizer's live monitor.
-	alertsService := alerts.NewService(alerts.NewRepo(d.db), vehiclesService, nil)
+	// The hub is the fan-out behind every live view. Services publish to it
+	// through the broadcasters wired below.
+	hub := realtime.NewHub(d.logger, originHostOf(d.cfg.CORSAllowOrigin))
+	scoringService := scoring.NewService(scoring.NewRepo(d.db))
+
+	// Alerts move a vehicle's status and push to the organizer's live monitor.
+	alertsService := alerts.NewService(alerts.NewRepo(d.db), vehiclesService, newAlertBroadcaster(hub))
 
 	// The in-car runtime mints its own team tokens at bind time and files crew
 	// reports through the same alerts service organizers use.
-	sessionsHandler := sessions.NewHandler(sessions.NewService(
+	sessionsService := sessions.NewService(
 		sessions.NewRepo(d.db),
 		sessions.HMACTokenMinter{Secret: d.cfg.TeamTokenSecret, TTL: d.cfg.TeamTokenTTL},
 		alertsService,
-		nil,
-	), d.logger)
+		newSessionBroadcaster(hub, scoringService, d.logger),
+	)
+	sessionsHandler := sessions.NewHandler(sessionsService, d.logger)
 
 	// Binding runs before a crew has any credential: it is what issues one.
 	sessionsHandler.RegisterPublic(r)
 
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Auth(d.cfg, d.organizer))
+
+		// Live updates. The handler checks the caller may listen to the topic
+		// it asked for before upgrading.
+		r.Get("/ws", wsHandler(hub, d.logger))
 
 		// Readable by either identity. Mounted above the role gates because
 		// chi cannot carry the same path in two sibling groups; the handler
@@ -112,7 +122,7 @@ func newRouter(d deps) http.Handler {
 			tasksHandler.Register(r)
 			vehicles.NewHandler(vehiclesService, d.logger).Register(r)
 			alerts.NewHandler(alertsService, d.logger).Register(r)
-			scoring.NewHandler(scoring.NewService(scoring.NewRepo(d.db)), d.logger).Register(r)
+			scoring.NewHandler(scoringService, d.logger).Register(r)
 			debrief.NewHandler(debrief.NewService(debrief.NewRepo(d.db)), d.logger).Register(r)
 		})
 	})
