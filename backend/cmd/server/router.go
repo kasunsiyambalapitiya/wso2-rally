@@ -26,10 +26,12 @@ import (
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/alerts"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/authz"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/config"
+	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/debrief"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/events"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/httpx"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/middleware"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/routes"
+	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/scoring"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/sessions"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/tasks"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/vehicles"
@@ -110,6 +112,8 @@ func newRouter(d deps) http.Handler {
 			tasksHandler.Register(r)
 			vehicles.NewHandler(vehiclesService, d.logger).Register(r)
 			alerts.NewHandler(alertsService, d.logger).Register(r)
+			scoring.NewHandler(scoring.NewService(scoring.NewRepo(d.db)), d.logger).Register(r)
+			debrief.NewHandler(debrief.NewService(debrief.NewRepo(d.db)), d.logger).Register(r)
 		})
 	})
 
