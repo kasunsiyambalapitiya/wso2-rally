@@ -29,6 +29,7 @@ import (
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/httpx"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/middleware"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/routes"
+	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/tasks"
 )
 
 // deps is everything the routing tree needs. Building it in one place keeps
@@ -57,6 +58,10 @@ func newRouter(d deps) http.Handler {
 	// Unauthenticated: Choreo's health probe.
 	r.Get("/health", health)
 
+	// Shared between both identities: the micro app reads task definitions to
+	// render a task body, using the same endpoint the organizer edits through.
+	tasksHandler := tasks.NewHandler(tasks.NewService(tasks.NewRepo(d.db)), d.logger)
+
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Auth(d.cfg, d.organizer))
 
@@ -67,6 +72,7 @@ func newRouter(d deps) http.Handler {
 			r.Get("/users/me", currentUser)
 			events.NewHandler(events.NewService(events.NewRepo(d.db)), d.logger).Register(r)
 			routes.NewHandler(routes.NewService(routes.NewRepo(d.db)), d.logger).Register(r)
+			tasksHandler.Register(r)
 		})
 	})
 
