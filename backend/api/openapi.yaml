@@ -1,0 +1,1349 @@
+# Copyright (c) 2026 WSO2 LLC. (https://www.wso2.com).
+# Licensed under the Apache License, Version 2.0.
+openapi: 3.0.1
+
+info:
+  title: WSO2 Motor Rally API
+  version: 1.0.0
+  description: |
+    The rally game engine. Two identities share this API:
+
+    - **Organizers** authenticate with an Asgardeo id token and set the rally
+      up, then watch it run.
+    - **Crews** authenticate with a team token minted by `POST /sessions/bind`,
+      the only unauthenticated write. There is no participant login: binding a
+      vehicle is what authenticates a phone, and the one-active-phone rule
+      means a second device is rejected with `409`.
+
+    Every non-2xx response body is exactly `{"message": "..."}`.
+
+    List endpoints are `POST /<resource>/search` with `{offset, limit,
+    filters}`; the limit defaults to 20 and caps at 100.
+
+servers:
+  - url: /
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Health
+  - name: Events
+  - name: Routes
+  - name: Tasks
+  - name: Vehicles
+  - name: Alerts
+  - name: Run views
+  - name: Debrief
+  - name: In-car
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Liveness probe.
+      security: []
+      responses:
+        "200":
+          description: The service is up.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+
+  /users/me:
+    get:
+      tags: [Events]
+      summary: The signed-in organizer, used to gate admin-only UI.
+      responses:
+        "200":
+          description: The caller's identity.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  userId: { type: string }
+                  email: { type: string }
+                  groups:
+                    type: array
+                    items: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /events:
+    post:
+      tags: [Events]
+      summary: Create an event.
+      description: The creator is taken from the token, never from the body.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateEventRequest" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Event" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /events/search:
+    post:
+      tags: [Events]
+      summary: Search events.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                offset: { type: integer, default: 0 }
+                limit: { type: integer, default: 20, maximum: 100 }
+                filters:
+                  type: object
+                  properties:
+                    status: { $ref: "#/components/schemas/EventStatus" }
+      responses:
+        "200":
+          description: A page of events.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Event" }
+                  totalCount: { type: integer }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /events/{eventId}:
+    parameters:
+      - $ref: "#/components/parameters/EventId"
+    get:
+      tags: [Events]
+      summary: Read one event.
+      responses:
+        "200":
+          description: The event.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Event" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Events]
+      summary: Update an event. Omitted fields are left unchanged.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateEventRequest" }
+      responses:
+        "200":
+          description: The updated event.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Event" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /events/{eventId}/publish:
+    parameters:
+      - $ref: "#/components/parameters/EventId"
+    post:
+      tags: [Events]
+      summary: Open the event to crews.
+      description: |
+        Both geofences must be placed first: without them the start grid cannot
+        lock and arrival can never be detected. Publishing twice is a no-op.
+      responses:
+        "200":
+          description: The published event.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Event" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /events/{eventId}/routes:
+    parameters:
+      - $ref: "#/components/parameters/EventId"
+    get:
+      tags: [Routes]
+      summary: List the event's routes, without their waypoints.
+      responses:
+        "200":
+          description: The routes.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Route" }
+    post:
+      tags: [Routes]
+      summary: Add a route.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, example: Inland }
+                order: { type: integer }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Route" }
+        "409":
+          description: The event already has a route with that name.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /routes/{routeId}:
+    parameters:
+      - $ref: "#/components/parameters/RouteId"
+    get:
+      tags: [Routes]
+      summary: Read a route with its waypoints in driving order.
+      responses:
+        "200":
+          description: The route.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Route" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Routes]
+      summary: Rename or reposition a route.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                order: { type: integer }
+      responses:
+        "200":
+          description: The updated route.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Route" }
+
+  /routes/{routeId}/waypoints:
+    parameters:
+      - $ref: "#/components/parameters/RouteId"
+    post:
+      tags: [Routes]
+      summary: Append a waypoint to the route.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [label, lat, lng, boundaryRadiusM]
+              properties:
+                label: { type: string }
+                lat: { type: number, format: double }
+                lng: { type: number, format: double }
+                boundaryRadiusM: { type: integer, minimum: 1 }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Waypoint" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /routes/{routeId}/waypoints/order:
+    parameters:
+      - $ref: "#/components/parameters/RouteId"
+    patch:
+      tags: [Routes]
+      summary: Reorder the route's legs.
+      description: |
+        `orderedIds` must be a permutation of exactly the route's current
+        waypoints. A partial list would silently drop legs, so it is rejected.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderedIds]
+              properties:
+                orderedIds:
+                  type: array
+                  items: { type: string }
+      responses:
+        "200":
+          description: The reordered route.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Route" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /waypoints/{waypointId}:
+    parameters:
+      - $ref: "#/components/parameters/WaypointId"
+    patch:
+      tags: [Routes]
+      summary: Move a waypoint or resize its boundary.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label: { type: string }
+                lat: { type: number, format: double }
+                lng: { type: number, format: double }
+                boundaryRadiusM: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: The updated waypoint.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Waypoint" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /waypoints/{waypointId}/tasks:
+    parameters:
+      - $ref: "#/components/parameters/WaypointId"
+    post:
+      tags: [Routes]
+      summary: Set which tasks unlock inside this waypoint.
+      description: Replaces the whole set; an empty list detaches everything.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [taskIds]
+              properties:
+                taskIds:
+                  type: array
+                  items: { type: string }
+      responses:
+        "200":
+          description: The updated waypoint.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Waypoint" }
+
+  /events/{eventId}/tasks:
+    parameters:
+      - $ref: "#/components/parameters/EventId"
+    post:
+      tags: [Tasks]
+      summary: Author a task.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateTaskRequest" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409":
+          description: The event already has a task with that code.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /events/{eventId}/tasks/search:
+    parameters:
+      - $ref: "#/components/parameters/EventId"
+    post:
+      tags: [Tasks]
+      summary: Search the event's task library.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                offset: { type: integer }
+                limit: { type: integer }
+      responses:
+        "200":
+          description: A page of tasks.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Task" }
+                  totalCount: { type: integer }
+
+  /tasks/{taskId}:
+    parameters:
+      - name: taskId
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [Tasks, In-car]
+      summary: Read a task definition.
+      description: |
+        Readable by both identities. **A crew's copy has the scoring keys
+        stripped from `config`** — the answer, the grid solution, the barcode
+        payload, the blind-timer target — so rendering a task never reveals it.
+      responses:
+        "200":
+          description: The task.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Tasks]
+      summary: Retune a task.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateTaskRequest" }
+      responses:
+        "200":
+          description: The updated task.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /events/{eventId}/vehicles:
+    parameters:
+      - $ref: "#/components/parameters/EventId"
+    post:
+      tags: [Vehicles]
+      summary: Provision a vehicle and its crew.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateVehicleRequest" }
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Vehicle" }
+        "409":
+          description: The event already has a vehicle with that code.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /events/{eventId}/vehicles/search:
+    parameters:
+      - $ref: "#/components/parameters/EventId"
+    post:
+      tags: [Vehicles]
+      summary: Search the event's vehicles.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                offset: { type: integer }
+                limit: { type: integer }
+      responses:
+        "200":
+          description: A page of vehicles.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Vehicle" }
+                  totalCount: { type: integer }
+
+  /events/{eventId}/vehicles/import:
+    parameters:
+      - $ref: "#/components/parameters/EventId"
+    post:
+      tags: [Vehicles]
+      summary: Provision vehicles from a CSV.
+      description: |
+        Columns, in order: `code,team_name,vehicle_type,contact_number,
+        route_name,crew_names`. Crew names are pipe-separated and the first
+        one listed holds the phone. Route names resolve to ids within the event.
+
+        The whole file is validated before anything is written, and the insert
+        runs in one transaction: a typo on line 80 leaves no vehicles behind.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: How many vehicles were provisioned.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  imported: { type: integer }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409":
+          description: A code in the file already exists in this event.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "413":
+          description: The file is too large.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /events/{eventId}/vehicles/export:
+    parameters:
+      - $ref: "#/components/parameters/EventId"
+    get:
+      tags: [Vehicles]
+      summary: Download the event's vehicles as CSV.
+      description: The same shape the import accepts, so it round-trips.
+      responses:
+        "200":
+          description: The CSV file.
+          content:
+            text/csv:
+              schema: { type: string }
+
+  /vehicles/{vehicleId}:
+    parameters:
+      - $ref: "#/components/parameters/VehicleId"
+    get:
+      tags: [Vehicles]
+      summary: Read one vehicle with its crew.
+      responses:
+        "200":
+          description: The vehicle.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Vehicle" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Vehicles]
+      summary: Update a vehicle. A supplied crew replaces the whole list.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateVehicleRequest" }
+      responses:
+        "200":
+          description: The updated vehicle.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Vehicle" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /vehicles/{vehicleId}/alerts:
+    parameters:
+      - $ref: "#/components/parameters/VehicleId"
+    post:
+      tags: [Alerts]
+      summary: Raise a vehicle problem.
+      description: |
+        A `breakdown` or `device_issue` also moves the vehicle's status, so the
+        dashboard, the monitor, and the alert list agree. `other` is
+        informational and leaves the vehicle running.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type]
+              properties:
+                type: { $ref: "#/components/schemas/AlertType" }
+                note: { type: string }
+                lat: { type: number, nullable: true }
+                lng: { type: number, nullable: true }
+      responses:
+        "201":
+          description: Raised.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Alert" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /alerts/{alertId}:
+    parameters:
+      - name: alertId
+        in: path
+        required: true
+        schema: { type: string }
+    patch:
+      tags: [Alerts]
+      summary: Resolve an alert.
+      description: |
+        Takes no body: resolving is the only transition an alert supports.
+        Clearing a vehicle's last blocking alert returns it to `ok`.
+      responses:
+        "200":
+          description: The resolved alert.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Alert" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /events/{eventId}/alerts/search:
+    parameters:
+      - $ref: "#/components/parameters/EventId"
+    post:
+      tags: [Alerts]
+      summary: Search the event's alerts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                offset: { type: integer }
+                limit: { type: integer }
+                filters:
+                  type: object
+                  properties:
+                    openOnly:
+                      type: boolean
+                      description: Restrict to unresolved alerts.
+      responses:
+        "200":
+          description: A page of alerts.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Alert" }
+                  totalCount: { type: integer }
+
+  /events/{eventId}/leaderboard:
+    parameters:
+      - $ref: "#/components/parameters/EventId"
+    get:
+      tags: [Run views]
+      summary: The pavilion leaderboard.
+      description: |
+        Highest score first; a tie goes to whoever finished earlier, and a team
+        still running loses a tie against one that has finished. Teams with the
+        same score and finish time share a rank.
+      responses:
+        "200":
+          description: The ranked standings.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/LeaderboardEntry" }
+
+  /events/{eventId}/monitor:
+    parameters:
+      - $ref: "#/components/parameters/EventId"
+    get:
+      tags: [Run views]
+      summary: The live monitor snapshot.
+      description: |
+        Every vehicle in the event, whether or not a crew has bound to it, plus
+        the open-alert count behind the dashboard's warning card.
+      responses:
+        "200":
+          description: The snapshot.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  vehicles:
+                    type: array
+                    items: { $ref: "#/components/schemas/VehicleProgress" }
+                  openAlerts: { type: integer }
+
+  /events/{eventId}/debrief-videos:
+    parameters:
+      - $ref: "#/components/parameters/EventId"
+    post:
+      tags: [Debrief]
+      summary: Attach a debrief clip.
+      description: Stores an object key or URL; uploading happens elsewhere.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [objectKey]
+              properties:
+                vehicleId:
+                  type: string
+                  nullable: true
+                  description: Null for a clip about the whole field.
+                day: { type: integer, minimum: 1, maximum: 7, default: 1 }
+                objectKey: { type: string }
+      responses:
+        "201":
+          description: Attached.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DebriefVideo" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /events/{eventId}/debrief-videos/search:
+    parameters:
+      - $ref: "#/components/parameters/EventId"
+    post:
+      tags: [Debrief]
+      summary: Search debrief clips.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                offset: { type: integer }
+                limit: { type: integer }
+                filters:
+                  type: object
+                  properties:
+                    day:
+                      type: integer
+                      description: Zero matches every day.
+      responses:
+        "200":
+          description: A page of clips.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/DebriefVideo" }
+                  totalCount: { type: integer }
+
+  /sessions/bind:
+    post:
+      tags: [In-car]
+      summary: Bind one phone to a vehicle and receive a team token.
+      description: |
+        The zero-facilitator start: no one hands out credentials, the crew picks
+        their vehicle. The event must be published.
+
+        **One active phone per vehicle.** A second device binding the same
+        vehicle receives `409`; the rule is enforced by a unique index, so two
+        phones racing cannot both win.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [vehicleId, crewMemberIds]
+              properties:
+                vehicleId: { type: string }
+                crewMemberIds:
+                  type: array
+                  minItems: 1
+                  items: { type: string }
+                  description: Chosen from the vehicle's own roster.
+      responses:
+        "201":
+          description: Bound.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  teamToken: { type: string }
+                  session: { $ref: "#/components/schemas/Session" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: The vehicle is already bound, or the event is not published.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /sessions/me:
+    get:
+      tags: [In-car]
+      summary: The crew's whole state — session, course, geofences, cipher.
+      description: |
+        The session is taken from the team token, never from the request. The
+        cipher is empty until the event is active.
+      responses:
+        "200":
+          description: The state.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SessionState" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /sessions/me/location:
+    post:
+      tags: [In-car]
+      summary: Report a position and learn what it unlocked.
+      description: |
+        The server evaluates every boundary; the client only reports where it
+        is. The first ping starts the run, and a position inside the finish
+        geofence auto-finishes it and issues the voucher.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lat, lng]
+              properties:
+                lat: { type: number, format: double }
+                lng: { type: number, format: double }
+                accuracy: { type: number, format: double }
+      responses:
+        "200":
+          description: What is now available.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PingResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "409":
+          description: The session has already finished.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /sessions/me/tasks:
+    get:
+      tags: [In-car]
+      summary: The crew's task list with each task's status.
+      responses:
+        "200":
+          description: The tasks.
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/TaskState" }
+
+  /sessions/me/tasks/{taskId}/submit:
+    parameters:
+      - name: taskId
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      tags: [In-car]
+      summary: Submit an attempt and have it scored.
+      description: |
+        The body shape is per task type — `{"answer": ...}`,
+        `{"answers": [...]}`, `{"reached": true}`, `{"hardStops": n,
+        "sharpTurns": n, "km": n}`, `{"elapsedSec": n}`, `{"branch":
+        "solve"|"skip"}`, `{"payload": "..."}`.
+
+        Scoring happens server-side and cannot exceed the task's points.
+        Resubmitting corrects the total rather than adding to it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: The scored result.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  correct: { type: boolean }
+                  awardedPoints: { type: integer }
+                  detail: { type: string }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409":
+          description: The session has already finished.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+  /sessions/me/alerts:
+    post:
+      tags: [In-car]
+      summary: Report a problem from the car.
+      description: |
+        Files the same kind of alert an organizer would, tagged `source=crew`
+        and carrying the vehicle's live position.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type]
+              properties:
+                type: { $ref: "#/components/schemas/AlertType" }
+                note: { type: string }
+                lat: { type: number, nullable: true }
+                lng: { type: number, nullable: true }
+      responses:
+        "201":
+          description: Raised.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Alert" }
+
+  /sessions/me/finish:
+    post:
+      tags: [In-car]
+      summary: End the run explicitly.
+      description: |
+        The manual fallback; arriving at the finish geofence does this
+        automatically. Finishing twice is a no-op.
+      responses:
+        "200":
+          description: The finished session.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Session" }
+
+  /sessions/me/vouchers:
+    get:
+      tags: [In-car]
+      summary: What the crew collects at Pearl Bay.
+      responses:
+        "200":
+          description: The voucher.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entryCode: { type: string }
+                  lockerId: { type: string }
+                  lunchPasses: { type: integer }
+        "404":
+          description: The crew has not finished yet.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        An Asgardeo id token for organizers, or the team token from
+        `POST /sessions/bind` for crews. The service tells them apart by issuer.
+
+  parameters:
+    EventId:
+      name: eventId
+      in: path
+      required: true
+      schema: { type: string, pattern: "^[0-9a-f]{32}$" }
+    RouteId:
+      name: routeId
+      in: path
+      required: true
+      schema: { type: string, pattern: "^[0-9a-f]{32}$" }
+    WaypointId:
+      name: waypointId
+      in: path
+      required: true
+      schema: { type: string, pattern: "^[0-9a-f]{32}$" }
+    VehicleId:
+      name: vehicleId
+      in: path
+      required: true
+      schema: { type: string, pattern: "^[0-9a-f]{32}$" }
+
+  responses:
+    BadRequest:
+      description: The request could not be processed.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: Authentication required.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: The caller may not touch this resource.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: No such resource.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Conflict:
+      description: The resource's current state forbids the action.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+          description: A human sentence. Never carries internal detail.
+          example: Resource not found.
+
+    EventStatus:
+      type: string
+      enum: [setup, active, complete]
+
+    Boundary:
+      type: object
+      description: A circular geofence. Coordinates are null until pinned.
+      properties:
+        label: { type: string }
+        lat: { type: number, format: double, nullable: true }
+        lng: { type: number, format: double, nullable: true }
+        radiusM: { type: integer }
+
+    Event:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        eventDate: { type: string, format: date, example: "2027-02-13" }
+        startTime: { type: string, example: "09:00" }
+        status: { $ref: "#/components/schemas/EventStatus" }
+        start: { $ref: "#/components/schemas/Boundary" }
+        end: { $ref: "#/components/schemas/Boundary" }
+        cipher: { type: string }
+        createdBy: { type: string }
+        createdOn: { type: string, format: date-time }
+
+    CreateEventRequest:
+      type: object
+      required: [name, eventDate, startTime]
+      properties:
+        name: { type: string }
+        eventDate: { type: string, format: date }
+        startTime: { type: string, example: "09:00" }
+        start: { $ref: "#/components/schemas/Boundary" }
+        end: { $ref: "#/components/schemas/Boundary" }
+        cipher: { type: string }
+
+    UpdateEventRequest:
+      type: object
+      description: Omitted fields are left unchanged.
+      properties:
+        name: { type: string }
+        eventDate: { type: string, format: date }
+        startTime: { type: string }
+        start: { $ref: "#/components/schemas/Boundary" }
+        end: { $ref: "#/components/schemas/Boundary" }
+        cipher: { type: string }
+
+    Waypoint:
+      type: object
+      properties:
+        id: { type: string }
+        routeId: { type: string }
+        order: { type: integer }
+        label: { type: string }
+        lat: { type: number, format: double }
+        lng: { type: number, format: double }
+        boundaryRadiusM: { type: integer }
+        taskIds:
+          type: array
+          items: { type: string }
+
+    Route:
+      type: object
+      properties:
+        id: { type: string }
+        eventId: { type: string }
+        name: { type: string }
+        order: { type: integer }
+        waypoints:
+          type: array
+          description: Present on a single-route read, omitted from lists.
+          items: { $ref: "#/components/schemas/Waypoint" }
+
+    TaskType:
+      type: string
+      description: |
+        The thirteen types behind the fifteen challenges; three of them share
+        INPUT_NUMBER.
+      enum:
+        - INPUT_SELECT
+        - INPUT_NUMBER
+        - MULTI_SELECT
+        - SCAN_BARCODE
+        - TELEMATICS
+        - GEOFENCE_CROSS
+        - PROXIMITY
+        - GRID_FILL
+        - BLIND_TIMER
+        - BRANCH
+        - REST_LOCK
+        - TIMED_TRIVIA
+        - GATE_MATCH
+
+    Task:
+      type: object
+      properties:
+        id: { type: string }
+        eventId: { type: string }
+        code: { type: string, example: T1 }
+        title: { type: string }
+        type: { $ref: "#/components/schemas/TaskType" }
+        trigger:
+          type: string
+          enum: [geofence, sensor, choice, manual, timed]
+        points:
+          type: integer
+          description: The maximum award. Negative only for BRANCH.
+        sensor:
+          type: string
+          enum: [none, geolocation, devicemotion, camera, qr]
+        config:
+          type: object
+          additionalProperties: true
+          description: |
+            Per-type parameters. Scoring keys are stripped when a crew reads it.
+
+    CreateTaskRequest:
+      type: object
+      required: [code, title, type, trigger]
+      properties:
+        code: { type: string }
+        title: { type: string }
+        type: { $ref: "#/components/schemas/TaskType" }
+        trigger: { type: string }
+        points: { type: integer }
+        sensor: { type: string }
+        config:
+          type: object
+          additionalProperties: true
+
+    CrewMember:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        role: { type: string, enum: [navigator, node] }
+        originCountry: { type: string }
+
+    Vehicle:
+      type: object
+      properties:
+        id: { type: string }
+        eventId: { type: string }
+        code: { type: string, example: PKT-001 }
+        teamName: { type: string }
+        vehicleType: { type: string }
+        contactNumber: { type: string }
+        routeId: { type: string }
+        status: { type: string, enum: [ok, breakdown, device_issue] }
+        crew:
+          type: array
+          items: { $ref: "#/components/schemas/CrewMember" }
+
+    CreateVehicleRequest:
+      type: object
+      required: [code, teamName]
+      properties:
+        code: { type: string }
+        teamName: { type: string }
+        vehicleType: { type: string }
+        contactNumber: { type: string }
+        routeId: { type: string }
+        crew:
+          type: array
+          items:
+            type: object
+            required: [name]
+            properties:
+              name: { type: string }
+              role: { type: string, enum: [navigator, node] }
+              originCountry: { type: string }
+
+    AlertType:
+      type: string
+      enum: [breakdown, device_issue, other]
+
+    Alert:
+      type: object
+      properties:
+        id: { type: string }
+        vehicleId: { type: string }
+        type: { $ref: "#/components/schemas/AlertType" }
+        note: { type: string }
+        source: { type: string, enum: [organizer, crew] }
+        raisedBy: { type: string }
+        lat: { type: number, nullable: true }
+        lng: { type: number, nullable: true }
+        raisedAt: { type: string, format: date-time }
+        resolvedAt: { type: string, format: date-time, nullable: true }
+
+    LeaderboardEntry:
+      type: object
+      properties:
+        rank: { type: integer }
+        vehicleCode: { type: string }
+        teamName: { type: string }
+        totalScore: { type: integer }
+        finishTime: { type: string, format: date-time, nullable: true }
+
+    VehicleProgress:
+      type: object
+      properties:
+        vehicleCode: { type: string }
+        teamName: { type: string }
+        status: { type: string, enum: [ok, breakdown, device_issue] }
+        sessionStatus:
+          type: string
+          description: Empty when no crew has bound to the vehicle.
+          enum: ["", bound, active, finished]
+        done: { type: integer }
+        totalTasks: { type: integer }
+        totalScore: { type: integer }
+        lastLat: { type: number, nullable: true }
+        lastLng: { type: number, nullable: true }
+        lastSeenAt: { type: string, format: date-time, nullable: true }
+
+    DebriefVideo:
+      type: object
+      properties:
+        id: { type: string }
+        eventId: { type: string }
+        vehicleId: { type: string, nullable: true }
+        day: { type: integer }
+        objectKey: { type: string }
+        uploadedAt: { type: string, format: date-time }
+
+    Session:
+      type: object
+      properties:
+        id: { type: string }
+        eventId: { type: string }
+        vehicleId: { type: string }
+        status: { type: string, enum: [bound, active, finished] }
+        currentWaypointId: { type: string, nullable: true }
+        totalScore: { type: integer }
+        boundAt: { type: string, format: date-time, nullable: true }
+        startedAt: { type: string, format: date-time, nullable: true }
+        finishedAt: { type: string, format: date-time, nullable: true }
+        lastLat: { type: number, nullable: true }
+        lastLng: { type: number, nullable: true }
+
+    Circle:
+      type: object
+      properties:
+        lat: { type: number, format: double }
+        lng: { type: number, format: double }
+        radiusM: { type: integer }
+        placed:
+          type: boolean
+          description: False while the organizer has not dropped the pin.
+
+    SessionState:
+      type: object
+      properties:
+        session: { $ref: "#/components/schemas/Session" }
+        vehicleCode: { type: string }
+        teamName: { type: string }
+        eventStatus: { $ref: "#/components/schemas/EventStatus" }
+        startTime: { type: string }
+        cipher:
+          type: string
+          description: Empty until the event is active.
+        startCircle: { $ref: "#/components/schemas/Circle" }
+        finishCircle: { $ref: "#/components/schemas/Circle" }
+        waypoints:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              order: { type: integer }
+              circle: { $ref: "#/components/schemas/Circle" }
+              taskIds:
+                type: array
+                items: { type: string }
+        nextWaypointId: { type: string }
+
+    PingResponse:
+      type: object
+      properties:
+        unlockedTaskIds:
+          type: array
+          items: { type: string }
+        currentWaypointId: { type: string }
+        arrived: { type: boolean }
+        events:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+                enum: [geofence, rest_lock, trivia, arrival]
+              waypointId: { type: string }
+              taskId: { type: string }
+
+    TaskState:
+      type: object
+      properties:
+        taskId: { type: string }
+        waypointId: { type: string }
+        code: { type: string }
+        title: { type: string }
+        type: { $ref: "#/components/schemas/TaskType" }
+        points: { type: integer }
+        status: { type: string, enum: [pending, completed, skipped] }
+        awardedPoints: { type: integer }
