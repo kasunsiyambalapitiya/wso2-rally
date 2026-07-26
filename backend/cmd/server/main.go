@@ -1,0 +1,104 @@
+// Copyright (c) 2026 WSO2 LLC. (https://www.wso2.com).
+//
+// WSO2 LLC. licenses this file to you under the Apache License,
+// Version 2.0 (the "License"); you may not use this file except
+// in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+// Command server runs the WSO2 Motor Rally backend: a chi REST API plus a
+// WebSocket hub, backed by MySQL.
+package main
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+
+	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/config"
+)
+
+const (
+	readHeaderTimeout = 10 * time.Second
+	shutdownTimeout   = 15 * time.Second
+)
+
+func main() {
+	if err := run(); err != nil {
+		// The logger may not exist yet when config loading fails, so report to
+		// stderr through the default logger and exit non-zero.
+		slog.Error("server startup failed", "error", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.SlogLevel()}))
+	slog.SetDefault(logger)
+
+	srv := &http.Server{
+		Addr:              ":" + cfg.Port,
+		Handler:           newRouter(),
+		ReadHeaderTimeout: readHeaderTimeout,
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	errCh := make(chan error, 1)
+	go func() {
+		logger.Info("server listening", "port", cfg.Port)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- err
+		}
+		close(errCh)
+	}()
+
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		logger.Info("shutdown signal received")
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		return err
+	}
+	logger.Info("server stopped")
+
+	return nil
+}
+
+// newRouter builds the HTTP routing tree. GET /health is deliberately
+// unauthenticated so Choreo health probes can reach it.
+func newRouter() http.Handler {
+	r := chi.NewRouter()
+	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+
+	return r
+}
