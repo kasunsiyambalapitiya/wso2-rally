@@ -25,6 +25,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/stretchr/testify/require"
 
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/authz"
@@ -44,7 +45,10 @@ func newTestHandler(t *testing.T) (http.Handler, *fakeRepo) {
 		})
 	}
 
-	return withIdentity(handler.Routes()), repo
+	router := chi.NewRouter()
+	handler.Register(router)
+
+	return withIdentity(router), repo
 }
 
 func do(t *testing.T, h http.Handler, method, path, body string) *httptest.ResponseRecorder {
@@ -72,7 +76,7 @@ const createBody = `{
 func TestHandler_Create(t *testing.T) {
 	h, _ := newTestHandler(t)
 
-	rr := do(t, h, http.MethodPost, "/", createBody)
+	rr := do(t, h, http.MethodPost, "/events", createBody)
 
 	require.Equal(t, http.StatusCreated, rr.Code)
 	var got EventDTO
@@ -86,7 +90,7 @@ func TestHandler_Create(t *testing.T) {
 func TestHandler_Create_RejectsMalformedJSON(t *testing.T) {
 	h, _ := newTestHandler(t)
 
-	rr := do(t, h, http.MethodPost, "/", `{"name":`)
+	rr := do(t, h, http.MethodPost, "/events", `{"name":`)
 
 	require.Equal(t, http.StatusBadRequest, rr.Code)
 	require.NotEmpty(t, messageOf(t, rr))
@@ -95,7 +99,7 @@ func TestHandler_Create_RejectsMalformedJSON(t *testing.T) {
 func TestHandler_Create_RejectsUnknownField(t *testing.T) {
 	h, _ := newTestHandler(t)
 
-	rr := do(t, h, http.MethodPost, "/", `{"name":"R","createdBy":"attacker@example.com"}`)
+	rr := do(t, h, http.MethodPost, "/events", `{"name":"R","createdBy":"attacker@example.com"}`)
 
 	require.Equal(t, http.StatusBadRequest, rr.Code)
 }
@@ -103,7 +107,7 @@ func TestHandler_Create_RejectsUnknownField(t *testing.T) {
 func TestHandler_Create_ValidationIsExplained(t *testing.T) {
 	h, _ := newTestHandler(t)
 
-	rr := do(t, h, http.MethodPost, "/", `{"name":"","eventDate":"2027-02-13","startTime":"09:00"}`)
+	rr := do(t, h, http.MethodPost, "/events", `{"name":"","eventDate":"2027-02-13","startTime":"09:00"}`)
 
 	require.Equal(t, http.StatusBadRequest, rr.Code)
 	require.Contains(t, messageOf(t, rr), "Name is required")
@@ -112,7 +116,7 @@ func TestHandler_Create_ValidationIsExplained(t *testing.T) {
 func TestHandler_Create_RejectsBadDate(t *testing.T) {
 	h, _ := newTestHandler(t)
 
-	rr := do(t, h, http.MethodPost, "/", `{"name":"R","eventDate":"13-02-2027","startTime":"09:00"}`)
+	rr := do(t, h, http.MethodPost, "/events", `{"name":"R","eventDate":"13-02-2027","startTime":"09:00"}`)
 
 	require.Equal(t, http.StatusBadRequest, rr.Code)
 	require.Contains(t, messageOf(t, rr), "YYYY-MM-DD")
@@ -121,7 +125,7 @@ func TestHandler_Create_RejectsBadDate(t *testing.T) {
 func TestHandler_Get_Unknown404(t *testing.T) {
 	h, _ := newTestHandler(t)
 
-	rr := do(t, h, http.MethodGet, "/does-not-exist", "")
+	rr := do(t, h, http.MethodGet, "/events/does-not-exist", "")
 
 	require.Equal(t, http.StatusNotFound, rr.Code)
 	require.NotEmpty(t, messageOf(t, rr))
@@ -131,7 +135,7 @@ func TestHandler_GetAfterCreate(t *testing.T) {
 	h, _ := newTestHandler(t)
 	created := createEvent(t, h)
 
-	rr := do(t, h, http.MethodGet, "/"+created.ID, "")
+	rr := do(t, h, http.MethodGet, "/events/"+created.ID, "")
 
 	require.Equal(t, http.StatusOK, rr.Code)
 	var got EventDTO
@@ -143,7 +147,7 @@ func TestHandler_Patch(t *testing.T) {
 	h, _ := newTestHandler(t)
 	created := createEvent(t, h)
 
-	rr := do(t, h, http.MethodPatch, "/"+created.ID, `{"name":"Renamed"}`)
+	rr := do(t, h, http.MethodPatch, "/events/"+created.ID, `{"name":"Renamed"}`)
 
 	require.Equal(t, http.StatusOK, rr.Code)
 	var got EventDTO
@@ -156,7 +160,7 @@ func TestHandler_Publish(t *testing.T) {
 	h, _ := newTestHandler(t)
 	created := createEvent(t, h)
 
-	rr := do(t, h, http.MethodPost, "/"+created.ID+"/publish", "")
+	rr := do(t, h, http.MethodPost, "/events/"+created.ID+"/publish", "")
 
 	require.Equal(t, http.StatusOK, rr.Code)
 	var got EventDTO
@@ -168,7 +172,7 @@ func TestHandler_Search(t *testing.T) {
 	h, _ := newTestHandler(t)
 	createEvent(t, h)
 
-	rr := do(t, h, http.MethodPost, "/search", `{"offset":0,"limit":10,"filters":{"status":"setup"}}`)
+	rr := do(t, h, http.MethodPost, "/events/search", `{"offset":0,"limit":10,"filters":{"status":"setup"}}`)
 
 	require.Equal(t, http.StatusOK, rr.Code)
 	var got struct {
@@ -183,7 +187,7 @@ func TestHandler_Search(t *testing.T) {
 func TestHandler_Search_UnknownStatusIs400(t *testing.T) {
 	h, _ := newTestHandler(t)
 
-	rr := do(t, h, http.MethodPost, "/search", `{"filters":{"status":"archived"}}`)
+	rr := do(t, h, http.MethodPost, "/events/search", `{"filters":{"status":"archived"}}`)
 
 	require.Equal(t, http.StatusBadRequest, rr.Code)
 }
@@ -191,7 +195,7 @@ func TestHandler_Search_UnknownStatusIs400(t *testing.T) {
 func TestHandler_Search_EmptyResultIsAnArray(t *testing.T) {
 	h, _ := newTestHandler(t)
 
-	rr := do(t, h, http.MethodPost, "/search", `{}`)
+	rr := do(t, h, http.MethodPost, "/events/search", `{}`)
 
 	require.Equal(t, http.StatusOK, rr.Code)
 	require.JSONEq(t, `{"items":[],"totalCount":0}`, rr.Body.String())
@@ -200,7 +204,7 @@ func TestHandler_Search_EmptyResultIsAnArray(t *testing.T) {
 func createEvent(t *testing.T, h http.Handler) EventDTO {
 	t.Helper()
 
-	rr := do(t, h, http.MethodPost, "/", createBody)
+	rr := do(t, h, http.MethodPost, "/events", createBody)
 	require.Equal(t, http.StatusCreated, rr.Code)
 	var created EventDTO
 	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &created))

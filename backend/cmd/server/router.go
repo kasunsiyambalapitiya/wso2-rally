@@ -28,6 +28,7 @@ import (
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/events"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/httpx"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/middleware"
+	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/routes"
 )
 
 // deps is everything the routing tree needs. Building it in one place keeps
@@ -64,7 +65,8 @@ func newRouter(d deps) http.Handler {
 			r.Use(middleware.RequireOrganizer)
 
 			r.Get("/users/me", currentUser)
-			r.Mount("/events", events.NewHandler(events.NewService(events.NewRepo(d.db)), d.logger).Routes())
+			events.NewHandler(events.NewService(events.NewRepo(d.db)), d.logger).Register(r)
+			routes.NewHandler(routes.NewService(routes.NewRepo(d.db)), d.logger).Register(r)
 		})
 	})
 
