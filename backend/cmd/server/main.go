@@ -30,9 +30,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-
+	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/authz"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/config"
+	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/middleware"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/store"
 )
 
@@ -78,14 +78,24 @@ func run() error {
 		return nil
 	}
 
-	srv := &http.Server{
-		Addr:              ":" + cfg.Port,
-		Handler:           newRouter(),
-		ReadHeaderTimeout: readHeaderTimeout,
-	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	organizer, err := newOrganizerValidator(ctx, cfg, logger)
+	if err != nil {
+		return err
+	}
+
+	srv := &http.Server{
+		Addr: ":" + cfg.Port,
+		Handler: newRouter(deps{
+			cfg:       cfg,
+			db:        db,
+			logger:    logger,
+			organizer: organizer,
+		}),
+		ReadHeaderTimeout: readHeaderTimeout,
+	}
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -121,14 +131,24 @@ func closeDB(db *sql.DB, logger *slog.Logger) {
 	}
 }
 
-// newRouter builds the HTTP routing tree. GET /health is deliberately
-// unauthenticated so Choreo health probes can reach it.
-func newRouter() http.Handler {
-	r := chi.NewRouter()
-	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
-	})
+// newOrganizerValidator picks how organizer id tokens are checked.
+//
+// Deployed environments validate signatures against Asgardeo's JWKS. Local
+// development has no tenant to call, so it falls back to decoding claims
+// without verification — which is why config.Load refuses to start with the
+// validator enabled but no endpoint configured.
+func newOrganizerValidator(ctx context.Context, cfg config.Config, logger *slog.Logger) (middleware.OrganizerValidator, error) {
+	if !cfg.TokenValidatorEnabled {
+		logger.Warn("organizer token signatures are NOT being verified; " +
+			"set TOKEN_VALIDATOR_ENABLED=true outside local development")
+		return authz.NewDecodeOnlyValidator(), nil
+	}
 
-	return r
+	validator, err := authz.NewJWKSValidator(ctx, cfg.JWKSEndpoint)
+	if err != nil {
+		return nil, err
+	}
+	logger.Info("organizer tokens validated against JWKS", "endpoint", cfg.JWKSEndpoint)
+
+	return validator, nil
 }
