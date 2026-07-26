@@ -38,16 +38,17 @@ func NewHandler(service *Service, logger *slog.Logger) *Handler {
 	return &Handler{service: service, logger: logger}
 }
 
-// Routes returns the events sub-router, mounted by the caller at /events.
-func (h *Handler) Routes() chi.Router {
-	r := chi.NewRouter()
-	r.Post("/", h.create)
-	r.Post("/search", h.search)
-	r.Get("/{eventId}", h.get)
-	r.Patch("/{eventId}", h.update)
-	r.Post("/{eventId}/publish", h.publish)
-
-	return r
+// Register adds the events routes to r.
+//
+// Domains register absolute paths on the shared router rather than mounting
+// subtrees, because several of them hang endpoints off /events/{eventId} and
+// chi does not allow overlapping mounts.
+func (h *Handler) Register(r chi.Router) {
+	r.Post("/events", h.create)
+	r.Post("/events/search", h.search)
+	r.Get("/events/{eventId}", h.get)
+	r.Patch("/events/{eventId}", h.update)
+	r.Post("/events/{eventId}/publish", h.publish)
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
