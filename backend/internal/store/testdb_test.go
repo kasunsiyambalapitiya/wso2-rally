@@ -17,12 +17,21 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+// testLockName must match storetest.LockName: both serialise DB-backed tests
+// against the one shared database. This package cannot import storetest —
+// storetest imports store — so the few lines are duplicated rather than
+// exporting test scaffolding from the production package.
+const testLockName = "wso2_rally_test"
+
+const testLockTimeoutSeconds = 120
 
 // testDB opens the throwaway MySQL named by TEST_DB_DSN and leaves it empty.
 // Tests that need a database skip themselves when the variable is unset, so
@@ -40,20 +49,50 @@ func testDB(t *testing.T) *sql.DB {
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
 	require.NoError(t, Migrate(db))
+	lockForTest(t, db)
 	truncateAll(t, db)
 
 	return db
 }
 
-// truncateAll empties every domain table. Foreign-key checks are disabled for
-// the duration so the tables can be cleared in any order.
+// lockForTest holds the shared advisory lock for the duration of the test, so a
+// parallel package's truncation cannot wipe rows this test just seeded.
+func lockForTest(t *testing.T, db *sql.DB) {
+	t.Helper()
+
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	require.NoError(t, err)
+
+	var acquired sql.NullInt64
+	err = conn.QueryRowContext(ctx, "SELECT GET_LOCK(?, ?)", testLockName, testLockTimeoutSeconds).Scan(&acquired)
+	require.NoError(t, err)
+	require.True(t, acquired.Valid && acquired.Int64 == 1, "timed out waiting for the %q test lock", testLockName)
+
+	t.Cleanup(func() {
+		_, err := conn.ExecContext(ctx, "SELECT RELEASE_LOCK(?)", testLockName)
+		require.NoError(t, err)
+		require.NoError(t, conn.Close())
+	})
+}
+
+// truncateAll empties every domain table.
+//
+// It pins one connection: FOREIGN_KEY_CHECKS is session-scoped, so suspending
+// it on the pool would let the TRUNCATEs run on a connection that still has the
+// checks enabled.
 func truncateAll(t *testing.T, db *sql.DB) {
 	t.Helper()
 
-	_, err := db.Exec("SET FOREIGN_KEY_CHECKS = 0")
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, conn.Close()) }()
+
+	_, err = conn.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS = 0")
 	require.NoError(t, err)
 	defer func() {
-		_, err := db.Exec("SET FOREIGN_KEY_CHECKS = 1")
+		_, err := conn.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS = 1")
 		require.NoError(t, err)
 	}()
 
@@ -62,7 +101,7 @@ func truncateAll(t *testing.T, db *sql.DB) {
 		"debrief_video", "crew_member", "vehicle", "waypoint_task",
 		"waypoint", "route", "task", "event",
 	} {
-		_, err := db.Exec("TRUNCATE TABLE " + table)
+		_, err := conn.ExecContext(ctx, "TRUNCATE TABLE "+table)
 		require.NoError(t, err, "truncating %s", table)
 	}
 }
