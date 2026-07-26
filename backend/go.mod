@@ -4,6 +4,7 @@ go 1.25.6
 
 require (
 	github.com/MicahParks/keyfunc/v3 v3.8.0
+	github.com/coder/websocket v1.8.15
 	github.com/go-chi/chi/v5 v5.3.1
 	github.com/go-sql-driver/mysql v1.10.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
