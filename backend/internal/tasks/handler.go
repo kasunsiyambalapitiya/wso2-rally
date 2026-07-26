@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/authz"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/httpx"
 )
 
@@ -44,10 +45,11 @@ func (h *Handler) Register(r chi.Router) {
 	r.Post("/events/{eventId}/tasks", h.create)
 	r.Post("/events/{eventId}/tasks/search", h.search)
 	r.Patch("/tasks/{taskId}", h.update)
-	h.RegisterShared(r)
 }
 
-// RegisterShared adds the endpoints both organizers and crews may call.
+// RegisterShared adds the endpoints both organizers and crews may call. It is
+// mounted once, above the role gates, because chi cannot carry the same path
+// in two sibling groups.
 func (h *Handler) RegisterShared(r chi.Router) {
 	r.Get("/tasks/{taskId}", h.get)
 }
@@ -68,6 +70,9 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusCreated, toDTO(task))
 }
 
+// get returns a task definition. Crews read the same endpoint to render a task
+// body, so their copy has the answers stripped out — otherwise the cipher, the
+// grid solution, and the barcode payload would all be one request away.
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	task, err := h.service.Get(r.Context(), chi.URLParam(r, "taskId"))
 	if err != nil {
@@ -75,7 +80,12 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, toDTO(task))
+	dto := toDTO(task)
+	if identity, ok := authz.IdentityFrom(r.Context()); ok && identity.IsTeam() {
+		dto.Config = RedactForCrew(dto.Config)
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, dto)
 }
 
 func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
