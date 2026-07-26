@@ -1,0 +1,125 @@
+// Copyright (c) 2026 WSO2 LLC. (https://www.wso2.com).
+//
+// WSO2 LLC. licenses this file to you under the Apache License,
+// Version 2.0 (the "License"); you may not use this file except
+// in compliance with the License.
+// You may obtain a copy of the License at
+//
+// http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+// Package vehicles owns the rally's cars and the crews riding in them, plus
+// the CSV round trip organizers use to provision a hundred-odd teams without
+// typing them in one at a time.
+//
+// In the rally's metaphor a vehicle is a data packet and each crew member is a
+// node; the domain keeps the plainer names.
+package vehicles
+
+import (
+	"fmt"
+	"slices"
+
+	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/apperr"
+)
+
+// Sentinel errors, wrapping the shared categories.
+var (
+	// ErrNotFound means no vehicle exists with the requested id.
+	ErrNotFound = fmt.Errorf("%w: vehicle", apperr.ErrNotFound)
+	// ErrDuplicateCode means the event already has a vehicle with that code.
+	ErrDuplicateCode = fmt.Errorf("%w: a vehicle with that code already exists in this event", apperr.ErrConflict)
+)
+
+// Status is a vehicle's health during the rally. Organizers see it on the
+// dashboard and the live monitor.
+type Status string
+
+const (
+	// StatusOK is a vehicle running normally.
+	StatusOK Status = "ok"
+	// StatusBreakdown is a mechanically stranded vehicle.
+	StatusBreakdown Status = "breakdown"
+	// StatusDeviceIssue is a vehicle whose in-car phone is failing.
+	StatusDeviceIssue Status = "device_issue"
+)
+
+var allStatuses = []Status{StatusOK, StatusBreakdown, StatusDeviceIssue}
+
+// IsValid reports whether s is a known vehicle status.
+func (s Status) IsValid() bool { return slices.Contains(allStatuses, s) }
+
+// CrewRole is a crew member's seat.
+type CrewRole string
+
+const (
+	// RoleNavigator is the crew member holding the active phone.
+	RoleNavigator CrewRole = "navigator"
+	// RoleNode is any other crew member.
+	RoleNode CrewRole = "node"
+)
+
+var allRoles = []CrewRole{RoleNavigator, RoleNode}
+
+// IsValid reports whether r is a known crew role.
+func (r CrewRole) IsValid() bool { return slices.Contains(allRoles, r) }
+
+// CrewMember is one person in a vehicle.
+type CrewMember struct {
+	ID            string
+	VehicleID     string
+	Name          string
+	Role          CrewRole
+	OriginCountry string
+}
+
+// Vehicle is one rally car with its crew.
+type Vehicle struct {
+	ID      string
+	EventID string
+	// Code is the organizer-facing identifier, e.g. PKT-001.
+	Code          string
+	TeamName      string
+	VehicleType   string
+	ContactNumber string
+	// RouteID is empty until the vehicle is assigned a course.
+	RouteID string
+	Status  Status
+	Crew    []CrewMember
+}
+
+// CreateVehicleInput is a request to provision a vehicle and its crew.
+type CreateVehicleInput struct {
+	EventID       string
+	Code          string
+	TeamName      string
+	VehicleType   string
+	ContactNumber string
+	RouteID       string
+	Crew          []CrewMemberInput
+}
+
+// CrewMemberInput is one crew member on a create or update request.
+type CrewMemberInput struct {
+	Name          string
+	Role          CrewRole
+	OriginCountry string
+}
+
+// UpdateVehicleInput is a PATCH: nil fields are left untouched. A non-nil Crew
+// replaces the whole crew list.
+type UpdateVehicleInput struct {
+	Code          *string
+	TeamName      *string
+	VehicleType   *string
+	ContactNumber *string
+	RouteID       *string
+	Status        *Status
+	Crew          *[]CrewMemberInput
+}
