@@ -116,13 +116,6 @@ func NewService(repo Repo, minter TokenMinter, alertRaiser AlertRaiser, broadcas
 	return &Service{repo: repo, minter: minter, alerts: alertRaiser, broadcast: broadcast}
 }
 
-// SetBroadcaster attaches the realtime hub after construction.
-func (s *Service) SetBroadcaster(broadcast Broadcaster) {
-	if broadcast != nil {
-		s.broadcast = broadcast
-	}
-}
-
 // Bind pairs a phone with a vehicle and returns the team token it will carry.
 //
 // This is the zero-facilitator start: no one hands out credentials, the crew
@@ -215,7 +208,7 @@ func (s *Service) State(ctx context.Context, sessionID string) (SessionState, er
 //
 // The client never decides whether it is inside a boundary: it reports where
 // it is, and this method runs the geofence maths server-side.
-func (s *Service) Ping(ctx context.Context, sessionID string, position LatLng, accuracyM float64) (PingResult, error) {
+func (s *Service) Ping(ctx context.Context, sessionID string, position LatLng) (PingResult, error) {
 	if err := validatePosition(position); err != nil {
 		return PingResult{}, err
 	}

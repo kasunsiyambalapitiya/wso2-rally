@@ -48,8 +48,8 @@ type VehicleStatusSetter interface {
 }
 
 // Broadcaster publishes an alert to the organizer's live monitor. It is a
-// function so the realtime hub can be wired in later without this package
-// depending on it; the no-op default keeps the service usable before then.
+// function so this package need not depend on the realtime hub; the wiring
+// layer supplies one, and a nil broadcaster becomes a no-op.
 type Broadcaster func(eventID string, message any)
 
 // Service holds the alert rules.
@@ -67,14 +67,6 @@ func NewService(repo Repo, vehicleStatus VehicleStatusSetter, broadcast Broadcas
 	}
 
 	return &Service{repo: repo, vehicles: vehicleStatus, broadcast: broadcast}
-}
-
-// SetBroadcaster replaces the broadcaster after construction, which is how the
-// realtime hub is attached once it exists.
-func (s *Service) SetBroadcaster(broadcast Broadcaster) {
-	if broadcast != nil {
-		s.broadcast = broadcast
-	}
 }
 
 // Raise files a vehicle problem, moves the vehicle's status to match, and

@@ -263,3 +263,25 @@ func TestHub_ServeWSAllowsAConfiguredOrigin(t *testing.T) {
 	require.NoError(t, err)
 	_ = conn.CloseNow()
 }
+
+// Broadcast runs concurrently from many request handlers. Counting a dropped
+// message must not race with another goroutine doing the same.
+func TestHub_ConcurrentDropsDoNotRace(t *testing.T) {
+	hub := newTestHub(t)
+	_, unsubscribe := hub.Subscribe(testTopic)
+	defer unsubscribe()
+
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range subscriberBuffer {
+				hub.Broadcast(testTopic, map[string]any{"type": "vehicle_position"})
+			}
+		}()
+	}
+	wg.Wait()
+
+	require.Positive(t, hub.Dropped())
+}

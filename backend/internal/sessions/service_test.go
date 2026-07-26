@@ -343,7 +343,7 @@ func TestService_Ping_ActivatesAndUnlocks(t *testing.T) {
 	svc, repo, _, _ := newService(t)
 	session := bindOnce(t, svc)
 
-	result, err := svc.Ping(context.Background(), session.ID, atKandy, 5)
+	result, err := svc.Ping(context.Background(), session.ID, atKandy)
 
 	require.NoError(t, err)
 	require.Equal(t, []string{"task-1"}, result.UnlockedTaskIDs)
@@ -360,7 +360,7 @@ func TestService_Ping_BroadcastsPositionToOrganizers(t *testing.T) {
 	svc, _, _, sent := newService(t)
 	session := bindOnce(t, svc)
 
-	_, err := svc.Ping(context.Background(), session.ID, atKandy, 5)
+	_, err := svc.Ping(context.Background(), session.ID, atKandy)
 
 	require.NoError(t, err)
 	require.Contains(t, topicsOf(*sent), EventTopic(testEventID))
@@ -370,7 +370,7 @@ func TestService_Ping_BroadcastsRestLockToTheCrew(t *testing.T) {
 	svc, _, _, sent := newService(t)
 	session := bindOnce(t, svc)
 
-	_, err := svc.Ping(context.Background(), session.ID, LatLng{Lat: 6.8700, Lng: 79.9240}, 5)
+	_, err := svc.Ping(context.Background(), session.ID, LatLng{Lat: 6.8700, Lng: 79.9240})
 
 	require.NoError(t, err)
 	require.Contains(t, topicsOf(*sent), SessionTopic(session.ID))
@@ -380,7 +380,7 @@ func TestService_Ping_ArrivalFinishesAndIssuesVoucher(t *testing.T) {
 	svc, repo, _, _ := newService(t)
 	session := bindOnce(t, svc)
 
-	result, err := svc.Ping(context.Background(), session.ID, LatLng{Lat: 6.8480, Lng: 79.9280}, 5)
+	result, err := svc.Ping(context.Background(), session.ID, LatLng{Lat: 6.8480, Lng: 79.9280})
 
 	require.NoError(t, err)
 	require.True(t, result.Arrived)
@@ -399,10 +399,10 @@ func TestService_Ping_ArrivalFinishesAndIssuesVoucher(t *testing.T) {
 func TestService_Ping_AfterFinishIsRejected(t *testing.T) {
 	svc, _, _, _ := newService(t)
 	session := bindOnce(t, svc)
-	_, err := svc.Ping(context.Background(), session.ID, LatLng{Lat: 6.8480, Lng: 79.9280}, 5)
+	_, err := svc.Ping(context.Background(), session.ID, LatLng{Lat: 6.8480, Lng: 79.9280})
 	require.NoError(t, err)
 
-	_, err = svc.Ping(context.Background(), session.ID, atKandy, 5)
+	_, err = svc.Ping(context.Background(), session.ID, atKandy)
 
 	require.ErrorIs(t, err, ErrSessionFinished)
 }
@@ -411,7 +411,7 @@ func TestService_Ping_RejectsImpossibleCoordinates(t *testing.T) {
 	svc, _, _, _ := newService(t)
 	session := bindOnce(t, svc)
 
-	_, err := svc.Ping(context.Background(), session.ID, LatLng{Lat: 95, Lng: 0}, 5)
+	_, err := svc.Ping(context.Background(), session.ID, LatLng{Lat: 95, Lng: 0})
 
 	require.ErrorIs(t, err, apperr.ErrValidation)
 }
@@ -420,7 +420,7 @@ func TestService_Ping_OutsideEveryBoundaryStillRecordsPosition(t *testing.T) {
 	svc, repo, _, _ := newService(t)
 	session := bindOnce(t, svc)
 
-	result, err := svc.Ping(context.Background(), session.ID, nowhere, 5)
+	result, err := svc.Ping(context.Background(), session.ID, nowhere)
 
 	require.NoError(t, err)
 	require.Empty(t, result.UnlockedTaskIDs)

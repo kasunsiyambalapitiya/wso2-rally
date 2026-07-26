@@ -24,8 +24,8 @@ package taskengine
 
 import (
 	"encoding/json"
-	"fmt"
 	"math"
+	"reflect"
 
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/apperr"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/tasks"
@@ -138,7 +138,9 @@ func equalJSON(a, b any) bool {
 		return aStr == bStr
 	}
 
-	return fmt.Sprint(a) == fmt.Sprint(b)
+	// Anything else — booleans, arrays, nested objects — is compared
+	// structurally rather than by its formatted text.
+	return reflect.DeepEqual(a, b)
 }
 
 func toFloat(v any) (float64, bool) {
