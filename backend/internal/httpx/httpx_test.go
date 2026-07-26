@@ -129,3 +129,45 @@ func TestRequestID_RoundTrip(t *testing.T) {
 func TestErrEmptyBody_IsDistinct(t *testing.T) {
 	require.False(t, errors.Is(ErrEmptyBody, ErrBodyTooLarge))
 }
+
+// RFC 7235 requires a challenge on a 401; without it a generic client cannot
+// tell the response apart from a 403.
+func TestWriteUnauthorized_CarriesTheBearerChallenge(t *testing.T) {
+	rr := httptest.NewRecorder()
+
+	WriteUnauthorized(rr)
+
+	require.Equal(t, http.StatusUnauthorized, rr.Code)
+	require.Equal(t, `Bearer realm="rally"`, rr.Header().Get("WWW-Authenticate"))
+	require.Equal(t, MsgUnauthorized, messageOf(t, rr))
+}
+
+func TestWriteCreated_PointsAtTheNewResource(t *testing.T) {
+	rr := httptest.NewRecorder()
+
+	WriteCreated(rr, "/events/abc", map[string]string{"id": "abc"})
+
+	require.Equal(t, http.StatusCreated, rr.Code)
+	require.Equal(t, "/events/abc", rr.Header().Get("Location"))
+	require.JSONEq(t, `{"id":"abc"}`, rr.Body.String())
+}
+
+func TestWriteCreated_OmitsAnEmptyLocation(t *testing.T) {
+	rr := httptest.NewRecorder()
+
+	WriteCreated(rr, "", map[string]string{"id": "abc"})
+
+	require.Equal(t, http.StatusCreated, rr.Code)
+	require.Empty(t, rr.Header().Get("Location"))
+}
+
+func messageOf(t *testing.T, rr *httptest.ResponseRecorder) string {
+	t.Helper()
+
+	var body struct {
+		Message string `json:"message"`
+	}
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
+
+	return body.Message
+}

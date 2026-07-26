@@ -56,7 +56,7 @@ func wsHandler(hub *realtime.Hub, logger *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		identity, ok := authz.IdentityFrom(r.Context())
 		if !ok {
-			httpx.WriteError(w, http.StatusUnauthorized, httpx.MsgUnauthorized)
+			httpx.WriteUnauthorized(w)
 			return
 		}
 

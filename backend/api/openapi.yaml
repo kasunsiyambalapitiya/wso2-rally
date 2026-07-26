@@ -15,7 +15,13 @@ info:
       vehicle is what authenticates a phone, and the one-active-phone rule
       means a second device is rejected with `409`.
 
-    Every non-2xx response body is exactly `{"message": "..."}`.
+    Every non-2xx response body is exactly `{"message": "..."}` — no `code`
+    field. This mirrors the customer-portal contract the web app's
+    `getApiErrorMessage()` already parses; the status code carries the machine-
+    readable half.
+
+    Paths carry no `/v1` segment: versioning is handled by Choreo API
+    management, which publishes this definition under a versioned path.
 
     List endpoints are `POST /<resource>/search` with `{offset, limit,
     filters}`; the limit defaults to 20 and caps at 100.
@@ -85,6 +91,10 @@ paths:
       responses:
         "201":
           description: Created.
+          headers:
+            Location:
+              description: Where the new resource lives.
+              schema: { type: string, example: "/events/{eventId}" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Event" }
@@ -200,6 +210,10 @@ paths:
       responses:
         "201":
           description: Created.
+          headers:
+            Location:
+              description: Where the new resource lives.
+              schema: { type: string, example: "/routes/{routeId}" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Route" }
@@ -262,6 +276,10 @@ paths:
       responses:
         "201":
           description: Created.
+          headers:
+            Location:
+              description: Where the new resource lives.
+              schema: { type: string, example: "/waypoints/{waypointId}" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Waypoint" }
@@ -360,6 +378,10 @@ paths:
       responses:
         "201":
           description: Created.
+          headers:
+            Location:
+              description: Where the new resource lives.
+              schema: { type: string, example: "/tasks/{taskId}" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Task" }
@@ -448,6 +470,10 @@ paths:
       responses:
         "201":
           description: Created.
+          headers:
+            Location:
+              description: Where the new resource lives.
+              schema: { type: string, example: "/vehicles/{vehicleId}" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Vehicle" }
@@ -1009,6 +1035,10 @@ components:
           schema: { $ref: "#/components/schemas/Error" }
     Unauthorized:
       description: Authentication required.
+      headers:
+        WWW-Authenticate:
+          description: The challenge, per RFC 7235.
+          schema: { type: string, example: 'Bearer realm="rally"' }
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }

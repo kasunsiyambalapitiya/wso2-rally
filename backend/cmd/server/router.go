@@ -139,7 +139,7 @@ func health(w http.ResponseWriter, _ *http.Request) {
 func currentUser(w http.ResponseWriter, r *http.Request) {
 	identity, ok := authz.IdentityFrom(r.Context())
 	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, httpx.MsgUnauthorized)
+		httpx.WriteUnauthorized(w)
 		return
 	}
 
