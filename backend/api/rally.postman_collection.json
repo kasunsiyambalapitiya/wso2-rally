@@ -1,0 +1,1255 @@
+{
+  "info": {
+    "_postman_id": "a1c0f3e2-7b41-4d55-9c62-rally20270000",
+    "name": "WSO2 Motor Rally API",
+    "description": "The rally game engine (backend/api/openapi.yaml).\n\n## Setup\n\n1. Start the service: `set -a && source config.env && set +a`, `make docker-db`, `make run`.\n2. Send **Health / Liveness probe** to confirm `{{baseUrl}}` is reachable.\n3. Run the folders top to bottom. Every request that creates something stores its id in a collection variable, so the next request already points at it.\n\n## Auth\n\nTwo identities share this API and the collection models both.\n\n- **Organizer** — collection-level Bearer `{{organizerToken}}`. Locally the service runs with `TOKEN_VALIDATOR_ENABLED=false`, so it decodes organizer claims without checking the signature. The collection pre-request script mints a token that satisfies that mode when `organizerToken` is empty. **Against any deployed environment, paste a real Asgardeo id token into `organizerToken` instead** — the minted one will be rejected.\n- **Crew** — the *In-car (crew)* folder overrides auth to Bearer `{{teamToken}}`. `POST /sessions/bind` is unauthenticated and mints that token; its test script stores it.\n\n## Not covered here\n\n`GET /ws` is a WebSocket upgrade, which a REST collection cannot carry. Open a Postman WebSocket request against `ws://localhost:8080/ws?topic=event:{{eventId}}` (organizers) or `topic=session:{{sessionId}}` (crews), passing the same bearer token. Contract: `backend/api/asyncapi.yaml`.\n\nEvery non-2xx body is exactly `{\"message\": \"...\"}`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{organizerToken}}", "type": "string" }]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Mint a local-dev organizer token when none is set.",
+          "//",
+          "// With TOKEN_VALIDATOR_ENABLED=false the service calls",
+          "// authz.DecodeOrganizer, which checks only that the issuer is not",
+          "// rally-team, that exp is in the future, and that sub is present —",
+          "// the signature is never verified. So a dummy signature is enough",
+          "// locally, and useless anywhere else.",
+          "if (!pm.collectionVariables.get('organizerToken')) {",
+          "    const b64url = (obj) =>",
+          "        require('buffer').Buffer.from(JSON.stringify(obj))",
+          "            .toString('base64')",
+          "            .replace(/\\+/g, '-')",
+          "            .replace(/\\//g, '_')",
+          "            .replace(/=+$/, '');",
+          "",
+          "    const claims = {",
+          "        iss: 'https://api.asgardeo.io/t/local/oauth2/token',",
+          "        sub: pm.collectionVariables.get('organizerSub') || 'local-organizer',",
+          "        email: pm.collectionVariables.get('organizerEmail') || 'organizer@wso2.com',",
+          "        groups: [pm.collectionVariables.get('adminRole') || 'rally-admin'],",
+          "        exp: Math.floor(Date.now() / 1000) + 12 * 3600",
+          "    };",
+          "",
+          "    const token = b64url({ alg: 'HS256', typ: 'JWT' }) + '.' + b64url(claims) + '.local-dev-only';",
+          "    pm.collectionVariables.set('organizerToken', token);",
+          "    console.log('Minted a decode-only organizer token. Local dev only — replace it for any deployed environment.');",
+          "}"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080", "type": "string" },
+    { "key": "organizerToken", "value": "", "type": "string" },
+    { "key": "organizerSub", "value": "local-organizer", "type": "string" },
+    { "key": "organizerEmail", "value": "organizer@wso2.com", "type": "string" },
+    { "key": "adminRole", "value": "rally-admin", "type": "string" },
+    { "key": "teamToken", "value": "", "type": "string" },
+    { "key": "eventId", "value": "", "type": "string" },
+    { "key": "routeId", "value": "", "type": "string" },
+    { "key": "waypointId", "value": "", "type": "string" },
+    { "key": "taskId", "value": "", "type": "string" },
+    { "key": "vehicleId", "value": "", "type": "string" },
+    { "key": "crewMemberId", "value": "", "type": "string" },
+    { "key": "alertId", "value": "", "type": "string" },
+    { "key": "sessionId", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Liveness probe",
+          "request": {
+            "method": "GET",
+            "auth": { "type": "noauth" },
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/health", "host": ["{{baseUrl}}"], "path": ["health"] },
+            "description": "Unauthenticated, for Choreo's probe. Skipped by the auth middleware."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('status is ok', () => pm.expect(pm.response.json().status).to.eql('ok'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Identity",
+      "item": [
+        {
+          "name": "Current organizer",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/users/me", "host": ["{{baseUrl}}"], "path": ["users", "me"] },
+            "description": "Echoes the identity resolved from the bearer token. The web app uses `groups` to gate admin-only UI against `ADMIN_ROLE`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('carries a userId', () => pm.expect(pm.response.json().userId).to.be.a('string').and.not.empty);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Events",
+      "item": [
+        {
+          "name": "Create event",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"name\": \"WSO2 Motor Rally 2027\",\n  \"eventDate\": \"2027-02-13\",\n  \"startTime\": \"09:00\",\n  \"cipher\": \"SYSTEM SYNC\",\n  \"start\": {\n    \"label\": \"Colombo start grid\",\n    \"lat\": 6.9271,\n    \"lng\": 79.8612,\n    \"radiusM\": 150\n  },\n  \"end\": {\n    \"label\": \"Pearl Bay\",\n    \"lat\": 7.2083,\n    \"lng\": 79.8358,\n    \"radiusM\": 200\n  }\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/events", "host": ["{{baseUrl}}"], "path": ["events"] },
+            "description": "The creator is taken from the token, never from the body. Both boundaries may be left unpinned here and placed later — but publishing requires them."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const event = pm.response.json();",
+                  "pm.collectionVariables.set('eventId', event.id);",
+                  "console.log('eventId =', event.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Search events",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"offset\": 0,\n  \"limit\": 20,\n  \"filters\": {\n    \"status\": \"setup\"\n  }\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/events/search", "host": ["{{baseUrl}}"], "path": ["events", "search"] },
+            "description": "`limit` defaults to 20 and caps at 100. `filters.status` is one of `setup`, `active`, `complete`; drop it to match every status."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('paged shape', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.items).to.be.an('array');",
+                  "    pm.expect(body.totalCount).to.be.a('number');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get event",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/events/{{eventId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["events", "{{eventId}}"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update event",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"startTime\": \"09:30\",\n  \"cipher\": \"SYSTEM SYNC 2027\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/events/{{eventId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["events", "{{eventId}}"]
+            },
+            "description": "Omitted fields are left unchanged. Send `start` or `end` to move a geofence."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Publish event",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/events/{{eventId}}/publish",
+              "host": ["{{baseUrl}}"],
+              "path": ["events", "{{eventId}}", "publish"]
+            },
+            "description": "Opens the event to crews. Both geofences must be pinned first — without them the start grid cannot lock and arrival can never be detected. Publishing twice is a no-op.\n\n`POST /sessions/bind` fails with 409 until this succeeds."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('event is open to crews', () => pm.expect(pm.response.json().status).to.be.oneOf(['active', 'complete']));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Routes & waypoints",
+      "item": [
+        {
+          "name": "Create route",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"name\": \"Inland\",\n  \"order\": 1\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/events/{{eventId}}/routes",
+              "host": ["{{baseUrl}}"],
+              "path": ["events", "{{eventId}}", "routes"]
+            },
+            "description": "Two routes are configuration, not code: `Inland` and `Wetlands`. A duplicate name within the event is a 409."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const route = pm.response.json();",
+                  "pm.collectionVariables.set('routeId', route.id);",
+                  "console.log('routeId =', route.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List routes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/events/{{eventId}}/routes",
+              "host": ["{{baseUrl}}"],
+              "path": ["events", "{{eventId}}", "routes"]
+            },
+            "description": "Returns a bare array, without waypoints. Read one route to get its legs."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('array of routes', () => pm.expect(pm.response.json()).to.be.an('array'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get route with waypoints",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/routes/{{routeId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["routes", "{{routeId}}"]
+            },
+            "description": "Waypoints come back in driving order."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update route",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"name\": \"Inland\",\n  \"order\": 2\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/routes/{{routeId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["routes", "{{routeId}}"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Add waypoint",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"label\": \"Kelani bridge\",\n  \"lat\": 6.9605,\n  \"lng\": 79.8790,\n  \"boundaryRadiusM\": 120\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/routes/{{routeId}}/waypoints",
+              "host": ["{{baseUrl}}"],
+              "path": ["routes", "{{routeId}}", "waypoints"]
+            },
+            "description": "Appends to the end of the route. `boundaryRadiusM` is the geofence the server tests each location ping against."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const waypoint = pm.response.json();",
+                  "pm.collectionVariables.set('waypointId', waypoint.id);",
+                  "console.log('waypointId =', waypoint.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Reorder waypoints",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"orderedIds\": [\n    \"{{waypointId}}\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/routes/{{routeId}}/waypoints/order",
+              "host": ["{{baseUrl}}"],
+              "path": ["routes", "{{routeId}}", "waypoints", "order"]
+            },
+            "description": "`orderedIds` must be a permutation of **exactly** the route's current waypoints — a partial list would silently drop legs, so it is rejected with 400. List every id once you have added more than one."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update waypoint",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"label\": \"Kelani bridge (north side)\",\n  \"boundaryRadiusM\": 150\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/waypoints/{{waypointId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["waypoints", "{{waypointId}}"]
+            },
+            "description": "Move the pin or resize the boundary."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Tasks",
+      "description": "Attaching a task to a waypoint lives at the end of this folder rather than under *Routes & waypoints*: it needs both a waypoint and a task, so it can only run once the task exists.",
+      "item": [
+        {
+          "name": "Create task",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"code\": \"T1\",\n  \"title\": \"Which product fronts the API?\",\n  \"type\": \"INPUT_SELECT\",\n  \"trigger\": \"geofence\",\n  \"points\": 10,\n  \"sensor\": \"none\",\n  \"config\": {\n    \"prompt\": \"Pick the product that owns the gateway.\",\n    \"options\": [\"API Manager\", \"Identity Server\", \"Micro Integrator\"],\n    \"answer\": \"API Manager\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/events/{{eventId}}/tasks",
+              "host": ["{{baseUrl}}"],
+              "path": ["events", "{{eventId}}", "tasks"]
+            },
+            "description": "Tasks are data, never new code paths: one row per challenge, scored by the `type`'s validator in `internal/taskengine`.\n\n`type` is one of `INPUT_SELECT`, `INPUT_NUMBER`, `MULTI_SELECT`, `SCAN_BARCODE`, `TELEMATICS`, `GEOFENCE_CROSS`, `PROXIMITY`, `GRID_FILL`, `BLIND_TIMER`, `BRANCH`, `REST_LOCK`, `TIMED_TRIVIA`, `GATE_MATCH`.\n`trigger`: `geofence` | `sensor` | `choice` | `manual` | `timed`.\n`sensor`: `none` | `geolocation` | `devicemotion` | `camera` | `qr`.\n\nThe scoring keys inside `config` differ per type and are stripped when a crew reads the task:\n\n| type | scoring config | crew submits |\n|---|---|---|\n| `INPUT_SELECT`, `TIMED_TRIVIA` | `answer` (+ `limitSec`) | `{\"answer\": \"…\"}` |\n| `INPUT_NUMBER` | `answer`, `tolerance` | `{\"answer\": 42}` |\n| `MULTI_SELECT` | `answers` | `{\"answers\": [\"…\"]}` |\n| `GRID_FILL`, `GATE_MATCH` | `solution` | `{\"answer\": [\"…\"]}` |\n| `SCAN_BARCODE` | `payload` | `{\"payload\": \"…\"}` |\n| `BLIND_TIMER` | `targetSec` | `{\"elapsedSec\": 60.2}` |\n| `BRANCH` | `solvePoints`, `skipPoints` | `{\"branch\": \"solve\"}` |\n| `TELEMATICS` | thresholds | `{\"hardStops\": 2, \"sharpTurns\": 5, \"km\": 31.4}` |\n| `GEOFENCE_CROSS`, `PROXIMITY` | `checkpointId` | `{\"reached\": true}` |\n\nA duplicate `code` within the event is a 409."
+            },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const task = pm.response.json();",
+                  "pm.collectionVariables.set('taskId', task.id);",
+                  "console.log('taskId =', task.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Search tasks",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"offset\": 0,\n  \"limit\": 20\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/events/{{eventId}}/tasks/search",
+              "host": ["{{baseUrl}}"],
+              "path": ["events", "{{eventId}}", "tasks", "search"]
+            },
+            "description": "The event's task library, unredacted for an organizer."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get task (organizer view)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/tasks/{{taskId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["tasks", "{{taskId}}"]
+            },
+            "description": "The only endpoint both identities read. With an organizer token `config` still carries the answer; the crew's copy in the In-car folder does not."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('organizer sees the scoring keys', () => {",
+                  "    pm.expect(pm.response.json().config).to.have.property('answer');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update task",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"code\": \"T1\",\n  \"title\": \"Which product fronts the API?\",\n  \"type\": \"INPUT_SELECT\",\n  \"trigger\": \"geofence\",\n  \"points\": 15,\n  \"sensor\": \"none\",\n  \"config\": {\n    \"prompt\": \"Pick the product that owns the gateway.\",\n    \"options\": [\"API Manager\", \"Identity Server\", \"Micro Integrator\"],\n    \"answer\": \"API Manager\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/tasks/{{taskId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["tasks", "{{taskId}}"]
+            },
+            "description": "Retuning a task is a full replacement of the definition — send every field, not just the changed one."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Attach task to waypoint",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"taskIds\": [\n    \"{{taskId}}\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/waypoints/{{waypointId}}/tasks",
+              "host": ["{{baseUrl}}"],
+              "path": ["waypoints", "{{waypointId}}", "tasks"]
+            },
+            "description": "Sets which tasks unlock inside this waypoint — this is what makes a location ping return something. **Replaces the whole set**, so an empty list detaches everything.\n\nNeeds both `{{waypointId}}` (Routes & waypoints) and `{{taskId}}` (above)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('the task is attached', () => {",
+                  "    pm.expect(pm.response.json().taskIds).to.include(pm.collectionVariables.get('taskId'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Vehicles",
+      "item": [
+        {
+          "name": "Create vehicle",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"code\": \"PKT-001\",\n  \"teamName\": \"Popcorn Pioneers\",\n  \"vehicleType\": \"SUV\",\n  \"contactNumber\": \"+94771234567\",\n  \"routeId\": \"{{routeId}}\",\n  \"crew\": [\n    { \"name\": \"Nimal Perera\", \"role\": \"navigator\", \"originCountry\": \"LK\" },\n    { \"name\": \"Ayesha Fernando\", \"role\": \"node\", \"originCountry\": \"LK\" }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/events/{{eventId}}/vehicles",
+              "host": ["{{baseUrl}}"],
+              "path": ["events", "{{eventId}}", "vehicles"]
+            },
+            "description": "Provisions the vehicle and its crew roster in one call. The crew ids returned here are what a phone picks from at bind time. A duplicate `code` within the event is a 409."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const vehicle = pm.response.json();",
+                  "pm.collectionVariables.set('vehicleId', vehicle.id);",
+                  "if (vehicle.crew && vehicle.crew.length) {",
+                  "    pm.collectionVariables.set('crewMemberId', vehicle.crew[0].id);",
+                  "}",
+                  "console.log('vehicleId =', vehicle.id, 'crewMemberId =', pm.collectionVariables.get('crewMemberId'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Search vehicles",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"offset\": 0,\n  \"limit\": 20\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/events/{{eventId}}/vehicles/search",
+              "host": ["{{baseUrl}}"],
+              "path": ["events", "{{eventId}}", "vehicles", "search"]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Import vehicles (CSV)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": null,
+                  "description": "Pick a .csv on disk. The field name must be \"file\"."
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/events/{{eventId}}/vehicles/import",
+              "host": ["{{baseUrl}}"],
+              "path": ["events", "{{eventId}}", "vehicles", "import"]
+            },
+            "description": "Columns, in order:\n\n```\ncode,team_name,vehicle_type,contact_number,route_name,crew_names\nPKT-002,Wetland Wanderers,Van,+94712223334,Wetlands,Sanduni Silva|Kasun Jay\n```\n\nCrew names are pipe-separated and the first one listed holds the phone. Route names resolve to ids within the event.\n\nThe whole file is validated before anything is written and the insert runs in one transaction: a typo on line 80 leaves no vehicles behind. A code that already exists is a 409; an oversized file is a 413.\n\nLeave `Content-Type` unset — Postman sets the multipart boundary itself."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "console.log('imported', pm.response.json().imported, 'vehicles');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Export vehicles (CSV)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/events/{{eventId}}/vehicles/export",
+              "host": ["{{baseUrl}}"],
+              "path": ["events", "{{eventId}}", "vehicles", "export"]
+            },
+            "description": "`text/csv`, in the same shape the import accepts, so it round-trips."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('is CSV', () => pm.expect(pm.response.headers.get('Content-Type')).to.include('text/csv'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get vehicle",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/vehicles/{{vehicleId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["vehicles", "{{vehicleId}}"]
+            },
+            "description": "Refreshes `crewMemberId` from the live roster, which is what `POST /sessions/bind` binds against."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const vehicle = pm.response.json();",
+                  "if (vehicle.crew && vehicle.crew.length) {",
+                  "    pm.collectionVariables.set('crewMemberId', vehicle.crew[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update vehicle",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"code\": \"PKT-001\",\n  \"teamName\": \"Popcorn Pioneers\",\n  \"vehicleType\": \"Pickup\",\n  \"contactNumber\": \"+94771234567\",\n  \"routeId\": \"{{routeId}}\",\n  \"crew\": [\n    { \"name\": \"Nimal Perera\", \"role\": \"navigator\", \"originCountry\": \"LK\" },\n    { \"name\": \"Ayesha Fernando\", \"role\": \"node\", \"originCountry\": \"LK\" }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/vehicles/{{vehicleId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["vehicles", "{{vehicleId}}"]
+            },
+            "description": "**A supplied `crew` replaces the whole roster** — omitting a member deletes them, and the replacements get new ids. Send the full list.\n\nBecause the ids change, the test script re-reads `crewMemberId` from the response. A stale one makes `POST /sessions/bind` fail with 400."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "// The replacement crew has new ids, so the one bind will use has",
+                  "// just changed underneath us.",
+                  "const vehicle = pm.response.json();",
+                  "if (vehicle.crew && vehicle.crew.length) {",
+                  "    pm.collectionVariables.set('crewMemberId', vehicle.crew[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Alerts",
+      "item": [
+        {
+          "name": "Raise alert on vehicle",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"type\": \"breakdown\",\n  \"note\": \"Flat tyre near the Kelani bridge waypoint.\",\n  \"lat\": 6.9605,\n  \"lng\": 79.8790\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/vehicles/{{vehicleId}}/alerts",
+              "host": ["{{baseUrl}}"],
+              "path": ["vehicles", "{{vehicleId}}", "alerts"]
+            },
+            "description": "`type` is `breakdown` | `device_issue` | `other`. The first two also move the vehicle's status, so the dashboard, the monitor and the alert list agree; `other` is informational and leaves the vehicle running.\n\nRaised by an organizer, so `source=organizer`. This also pushes an `alert` message to the event's WebSocket topic."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const alert = pm.response.json();",
+                  "pm.collectionVariables.set('alertId', alert.id);",
+                  "console.log('alertId =', alert.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Search alerts",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"offset\": 0,\n  \"limit\": 20,\n  \"filters\": {\n    \"openOnly\": true\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/events/{{eventId}}/alerts/search",
+              "host": ["{{baseUrl}}"],
+              "path": ["events", "{{eventId}}", "alerts", "search"]
+            },
+            "description": "`filters.openOnly` restricts to unresolved alerts — what the dashboard's warning card counts."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Resolve alert",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/alerts/{{alertId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["alerts", "{{alertId}}"]
+            },
+            "description": "**Takes no body** — resolving is the only transition an alert supports. Clearing a vehicle's last blocking alert returns it to `ok`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('resolvedAt is stamped', () => pm.expect(pm.response.json().resolvedAt).to.not.be.null);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Run views",
+      "item": [
+        {
+          "name": "Leaderboard",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/events/{{eventId}}/leaderboard",
+              "host": ["{{baseUrl}}"],
+              "path": ["events", "{{eventId}}", "leaderboard"]
+            },
+            "description": "The pavilion board. Highest score first; a tie goes to whoever finished earlier, and a team still running loses a tie against one that has finished. Equal score and finish time share a rank."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('ranked array', () => pm.expect(pm.response.json()).to.be.an('array'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Monitor snapshot",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/events/{{eventId}}/monitor",
+              "host": ["{{baseUrl}}"],
+              "path": ["events", "{{eventId}}", "monitor"]
+            },
+            "description": "Every vehicle in the event, bound or not, plus the open-alert count. `sessionStatus` is empty for a vehicle no crew has picked up.\n\nThis is the initial paint; the live deltas arrive over `/ws` on `event:{{eventId}}`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('snapshot shape', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body.vehicles).to.be.an('array');",
+                  "    pm.expect(body.openAlerts).to.be.a('number');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Debrief",
+      "item": [
+        {
+          "name": "Attach debrief clip",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"vehicleId\": \"{{vehicleId}}\",\n  \"day\": 1,\n  \"objectKey\": \"debrief/2027-02-13/PKT-001-day1.mp4\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/events/{{eventId}}/debrief-videos",
+              "host": ["{{baseUrl}}"],
+              "path": ["events", "{{eventId}}", "debrief-videos"]
+            },
+            "description": "Stores an object key or URL; uploading happens elsewhere. Send `\"vehicleId\": null` for a clip about the whole field. `day` is 1–7."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('201 Created', () => pm.response.to.have.status(201));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Search debrief clips",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"offset\": 0,\n  \"limit\": 20,\n  \"filters\": {\n    \"day\": 0\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/events/{{eventId}}/debrief-videos/search",
+              "host": ["{{baseUrl}}"],
+              "path": ["events", "{{eventId}}", "debrief-videos", "search"]
+            },
+            "description": "`filters.day` of 0 matches every day."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "In-car (crew)",
+      "description": "The phone's surface. Every request here authenticates with `{{teamToken}}`, not the organizer token — the folder overrides collection auth.\n\nRun **Bind vehicle** first: it is the only unauthenticated write and it is what issues the token. The event must be published.",
+      "auth": {
+        "type": "bearer",
+        "bearer": [{ "key": "token", "value": "{{teamToken}}", "type": "string" }]
+      },
+      "item": [
+        {
+          "name": "Bind vehicle (mints the team token)",
+          "request": {
+            "method": "POST",
+            "auth": { "type": "noauth" },
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"vehicleId\": \"{{vehicleId}}\",\n  \"crewMemberIds\": [\n    \"{{crewMemberId}}\"\n  ]\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/sessions/bind", "host": ["{{baseUrl}}"], "path": ["sessions", "bind"] },
+            "description": "The zero-facilitator start: no one hands out credentials, the crew picks their own vehicle, and binding is what authenticates the phone.\n\n`crewMemberIds` are chosen from the vehicle's own roster.\n\n**One active phone per vehicle.** A second device binding the same vehicle gets a 409, enforced by a unique index on `(vehicle_id, active_flag)` — two phones racing cannot both win. A 409 also means the event is not published yet."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.collectionVariables.set('teamToken', body.teamToken);",
+                  "pm.collectionVariables.set('sessionId', body.session.id);",
+                  "console.log('sessionId =', body.session.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Session state",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/sessions/me", "host": ["{{baseUrl}}"], "path": ["sessions", "me"] },
+            "description": "The crew's whole world in one call: session, course, both geofences, the cipher. Taken from the team token, never from the request — there is no session id in the path.\n\n`cipher` stays empty until the event is active."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const state = pm.response.json();",
+                  "pm.test('session belongs to the bound vehicle', () => {",
+                  "    pm.expect(state.session.vehicleId).to.eql(pm.collectionVariables.get('vehicleId'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Report location",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"lat\": 6.9605,\n  \"lng\": 79.8790,\n  \"accuracy\": 12.5\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/sessions/me/location",
+              "host": ["{{baseUrl}}"],
+              "path": ["sessions", "me", "location"]
+            },
+            "description": "**The server decides what a position means.** The phone only reports where it is; the backend evaluates every boundary and answers with what unlocked plus any lifecycle events (`geofence`, `rest_lock`, `trivia`, `arrival`).\n\nThe first ping starts the run. A position inside the finish geofence auto-finishes it and issues the voucher. Pinging a finished session is a 409.\n\nThese coordinates match the sample waypoint above, so it should unlock the attached task."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const ping = pm.response.json();",
+                  "console.log('unlocked:', ping.unlockedTaskIds, 'arrived:', ping.arrived);",
+                  "if (ping.unlockedTaskIds && ping.unlockedTaskIds.length) {",
+                  "    pm.collectionVariables.set('taskId', ping.unlockedTaskIds[0]);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "My tasks",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/sessions/me/tasks",
+              "host": ["{{baseUrl}}"],
+              "path": ["sessions", "me", "tasks"]
+            },
+            "description": "The crew's task list with each task's `status` (`pending` | `completed` | `skipped`) and `awardedPoints`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get task (crew view — redacted)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/tasks/{{taskId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["tasks", "{{taskId}}"]
+            },
+            "description": "The same endpoint the organizer edits through, but `tasks.RedactForCrew` strips the scoring keys — `answer`, `answers`, `solution`, `payload`, `targetSec`, `tolerance`, `solvePoints`, `skipPoints`, `checkpointId` — before the definition reaches a phone. Rendering a task never reveals it."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('the answer is stripped', () => {",
+                  "    pm.expect(pm.response.json().config).to.not.have.property('answer');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Submit task",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"answer\": \"API Manager\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/sessions/me/tasks/{{taskId}}/submit",
+              "host": ["{{baseUrl}}"],
+              "path": ["sessions", "me", "tasks", "{{taskId}}", "submit"]
+            },
+            "description": "The body shape is per task type — see the table on **Tasks / Create task**. The example matches the sample `INPUT_SELECT`.\n\nScoring happens server-side and cannot exceed the task's `points`; the phone never decides whether it was right. Resubmitting **corrects** the total rather than adding to it. Submitting on a finished session is a 409."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const result = pm.response.json();",
+                  "console.log('correct:', result.correct, 'awarded:', result.awardedPoints, '-', result.detail);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Raise alert from the car",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "options": { "raw": { "language": "json" } },
+              "raw": "{\n  \"type\": \"device_issue\",\n  \"note\": \"GPS keeps dropping out.\",\n  \"lat\": 6.9605,\n  \"lng\": 79.8790\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/sessions/me/alerts",
+              "host": ["{{baseUrl}}"],
+              "path": ["sessions", "me", "alerts"]
+            },
+            "description": "Files the same kind of alert an organizer would, tagged `source=crew` and carrying the vehicle's live position."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "pm.test('tagged as a crew report', () => pm.expect(pm.response.json().source).to.eql('crew'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Finish run",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/sessions/me/finish",
+              "host": ["{{baseUrl}}"],
+              "path": ["sessions", "me", "finish"]
+            },
+            "description": "The manual fallback — arriving inside the finish geofence does this automatically. Finishing twice is a no-op. Locks the score and issues the voucher."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('session is finished', () => pm.expect(pm.response.json().status).to.eql('finished'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "My voucher",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/sessions/me/vouchers",
+              "host": ["{{baseUrl}}"],
+              "path": ["sessions", "me", "vouchers"]
+            },
+            "description": "What the crew collects at Pearl Bay: entry code, locker, lunch passes. A 404 means they have not finished yet."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

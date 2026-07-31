@@ -173,6 +173,15 @@
   .appbar .veh{font-family:var(--font-mono);font-size:9px;color:var(--accent);border:1px solid var(--accent);
     border-radius:5px;padding:1px 5px;}
   .hdstat{display:flex;gap:12px;flex-shrink:0;}
+  /* Always-available "report vehicle issue" control.
+     It sits in the app bar rather than the body, so it stays reachable mid-task
+     without competing with the screen's primary action or costing body space. */
+  .sos{flex-shrink:0;width:27px;height:27px;border-radius:8px;display:flex;align-items:center;
+    justify-content:center;border:1px solid var(--amber);color:var(--amber);
+    background:var(--amber-wash);cursor:pointer;padding:0;}
+  .sos svg{width:15px;height:15px;}
+  /* On B10 the control is the screen the crew is already on. */
+  .sos.on{background:var(--amber);color:#fff;}
   .hs{display:flex;flex-direction:column;align-items:flex-end;line-height:1;}
   .hsl{font-size:7px;font-family:var(--font-mono);color:var(--muted);letter-spacing:.06em;}
   .hsv{font-size:12px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:2px;}
@@ -219,6 +228,21 @@
   .scroller{overflow-x:auto;padding-bottom:6px;}
   @media (max-width:560px){ .screen{height:300px;} .desktop{width:100%;} }
 </style>
+
+<!--
+  Icon sprite. Inline SVG rather than the bare ⚠ glyph: the emoji renders as a
+  different shape (and often a different colour) on every platform, where this
+  stays crisp at any size, inherits currentColor for light/dark, and needs no
+  network request — which keeps the page self-contained.
+-->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="i-warn" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M10.3 3.9 1.9 18.4A1.9 1.9 0 0 0 3.6 21.2h16.8a1.9 1.9 0 0 0 1.7-2.8L13.7 3.9a1.9 1.9 0 0 0-3.4 0Z"/>
+    <path d="M12 9.4v4.3"/>
+    <path d="M12 17.3h.01"/>
+  </symbol>
+</svg>
 
 <div class="wrap">
   <header class="top">
@@ -587,7 +611,7 @@
         <div class="phone"><div class="notch"></div>
           <div class="pscreen">
             <div class="statusbar"><span>9:41</span><span>▂▄▆ 🔋</span></div>
-            <div class="appbar"><div class="at">Start grid</div><div class="hdstat"><span class="hs"><span class="hsl">SCORE</span><span class="hsv">0</span></span><span class="hs"><span class="hsl">DONE</span><span class="hsv">0/15</span></span></div></div>
+            <div class="appbar"><div class="at">Start grid</div><div class="hdstat"><span class="hs"><span class="hsl">SCORE</span><span class="hsv">0</span></span><span class="hs"><span class="hsl">DONE</span><span class="hsv">0/15</span></span></div><button class="sos" type="button" title="Report vehicle issue" aria-label="Report vehicle issue"><svg><use href="#i-warn"/></svg></button></div>
             <div class="pbody center">
               <div class="fullpad">
                 <div style="width:96px;height:96px;border-radius:50%;border:3px dashed var(--amber);background:var(--amber-wash);display:flex;align-items:center;justify-content:center;font-size:34px">📍</div>
@@ -607,7 +631,7 @@
         <div class="phone"><div class="notch"></div>
           <div class="pscreen">
             <div class="statusbar"><span>9:00</span><span>▂▄▆ 🔋</span></div>
-            <div class="appbar"><div class="at">Sync sequence</div><div class="hdstat"><span class="hs"><span class="hsl">SCORE</span><span class="hsv">0</span></span><span class="hs"><span class="hsl">DONE</span><span class="hsv">0/15</span></span></div></div>
+            <div class="appbar"><div class="at">Sync sequence</div><div class="hdstat"><span class="hs"><span class="hsl">SCORE</span><span class="hsv">0</span></span><span class="hs"><span class="hsl">DONE</span><span class="hsv">0/15</span></span></div><button class="sos" type="button" title="Report vehicle issue" aria-label="Report vehicle issue"><svg><use href="#i-warn"/></svg></button></div>
             <div class="pbody center">
               <div class="fullpad">
                 <div class="plabel">Auto-start countdown</div>
@@ -629,7 +653,7 @@
         <div class="phone"><div class="notch"></div>
           <div class="pscreen">
             <div class="statusbar"><span>9:14</span><span>▂▄▆ 🔋</span></div>
-            <div class="appbar"><div class="at">Leg 3 · Piliyandala</div><div class="hdstat"><span class="hs"><span class="hsl">SCORE</span><span class="hsv">640</span></span><span class="hs"><span class="hsl">DONE</span><span class="hsv">5/15</span></span></div></div>
+            <div class="appbar"><div class="at">Leg 3 · Piliyandala</div><div class="hdstat"><span class="hs"><span class="hsl">SCORE</span><span class="hsv">640</span></span><span class="hs"><span class="hsl">DONE</span><span class="hsv">5/15</span></span></div><button class="sos" type="button" title="Report vehicle issue" aria-label="Report vehicle issue"><svg><use href="#i-warn"/></svg></button></div>
             <div class="pbody">
               <div class="map" style="border-radius:11px">
                 <div class="route" style="left:20px;top:40px;width:90px;transform:rotate(30deg)"></div>
@@ -647,7 +671,7 @@
             </div>
           </div>
         </div>
-        <div class="cap" style="max-width:248px"><div class="ct"><span class="cn">B4</span>Route &amp; next leg</div><div class="cd">Live map, distance to the next geofenced task, running score, and a Report vehicle issue button (always reachable).</div></div>
+        <div class="cap" style="max-width:248px"><div class="ct"><span class="cn">B4</span>Route &amp; next leg</div><div class="cd">Live map, distance to the next geofenced task, and the running score. Carries the full-width Report vehicle issue button as well as the app-bar control — this is the idle screen, where the action should be discoverable and not merely reachable.</div></div>
       </div>
 
       <!-- M5 Barcode scan -->
@@ -655,7 +679,7 @@
         <div class="phone"><div class="notch"></div>
           <div class="pscreen">
             <div class="statusbar"><span>9:22</span><span>▂▄▆ 🔋</span></div>
-            <div class="appbar"><div class="at">Task 6 · Barcode</div><div class="hdstat"><span class="hs"><span class="hsl">SCORE</span><span class="hsv">640</span></span><span class="hs"><span class="hsl">DONE</span><span class="hsv">5/15</span></span></div></div>
+            <div class="appbar"><div class="at">Task 6 · Barcode</div><div class="hdstat"><span class="hs"><span class="hsl">SCORE</span><span class="hsv">640</span></span><span class="hs"><span class="hsl">DONE</span><span class="hsv">5/15</span></span></div><button class="sos" type="button" title="Report vehicle issue" aria-label="Report vehicle issue"><svg><use href="#i-warn"/></svg></button></div>
             <div class="pbody">
               <div class="plabel">Scan the barcode of a local soda</div>
               <div class="camera"><div class="reticle"></div></div>
@@ -671,7 +695,7 @@
         <div class="phone"><div class="notch"></div>
           <div class="pscreen">
             <div class="statusbar"><span>9:30</span><span>▂▄▆ 🔋</span></div>
-            <div class="appbar"><div class="at">Task 4 · Eco-drive</div><div class="hdstat"><span class="hs"><span class="hsl">SCORE</span><span class="hsv">700</span></span><span class="hs"><span class="hsl">DONE</span><span class="hsv">6/15</span></span></div></div>
+            <div class="appbar"><div class="at">Task 4 · Eco-drive</div><div class="hdstat"><span class="hs"><span class="hsl">SCORE</span><span class="hsv">700</span></span><span class="hs"><span class="hsl">DONE</span><span class="hsv">6/15</span></span></div><button class="sos" type="button" title="Report vehicle issue" aria-label="Report vehicle issue"><svg><use href="#i-warn"/></svg></button></div>
             <div class="pbody">
               <div class="plabel">10 km smooth-driving score</div>
               <div class="gauge">
@@ -691,7 +715,7 @@
         <div class="phone"><div class="notch"></div>
           <div class="pscreen">
             <div class="statusbar"><span>9:38</span><span>▂▄▆ 🔋</span></div>
-            <div class="appbar"><div class="at">Task 1 · Cipher</div><div class="hdstat"><span class="hs"><span class="hsl">SCORE</span><span class="hsv">590</span></span><span class="hs"><span class="hsl">DONE</span><span class="hsv">4/15</span></span></div></div>
+            <div class="appbar"><div class="at">Task 1 · Cipher</div><div class="hdstat"><span class="hs"><span class="hsl">SCORE</span><span class="hsv">590</span></span><span class="hs"><span class="hsl">DONE</span><span class="hsv">4/15</span></span></div><button class="sos" type="button" title="Report vehicle issue" aria-label="Report vehicle issue"><svg><use href="#i-warn"/></svg></button></div>
             <div class="pbody">
               <div class="box"><div class="plabel">Decode term</div><div style="font-weight:700;font-size:15px;margin-top:4px">“ගළපනය” → which WSO2 architecture equivalent?</div></div>
               <div class="pinput" style="border-color:var(--accent);color:var(--ink)">API Integration<span class="cv" style="color:var(--accent)">◉</span></div>
@@ -710,7 +734,7 @@
         <div class="phone"><div class="notch"></div>
           <div class="pscreen">
             <div class="statusbar"><span>9:52</span><span>▂▄▆ 🔋</span></div>
-            <div class="appbar"><div class="at">Task 12 · Rest</div><div class="hdstat"><span class="hs"><span class="hsl">SCORE</span><span class="hsv">720</span></span><span class="hs"><span class="hsl">DONE</span><span class="hsv">8/15</span></span></div></div>
+            <div class="appbar"><div class="at">Task 12 · Rest</div><div class="hdstat"><span class="hs"><span class="hsl">SCORE</span><span class="hsv">720</span></span><span class="hs"><span class="hsl">DONE</span><span class="hsv">8/15</span></span></div><button class="sos" type="button" title="Report vehicle issue" aria-label="Report vehicle issue"><svg><use href="#i-warn"/></svg></button></div>
             <div class="pbody center">
               <div class="fullpad">
                 <div style="font-size:40px">💧</div>
@@ -754,7 +778,7 @@
         <div class="phone"><div class="notch"></div>
           <div class="pscreen">
             <div class="statusbar"><span>9:47</span><span>▂▄▆ 🔋</span></div>
-            <div class="appbar"><div class="at">⚠ Report issue</div><div class="hdstat"><span class="hs"><span class="hsl">SCORE</span><span class="hsv">640</span></span><span class="hs"><span class="hsl">DONE</span><span class="hsv">5/15</span></span></div></div>
+            <div class="appbar"><div class="at">Report issue</div><div class="hdstat"><span class="hs"><span class="hsl">SCORE</span><span class="hsv">640</span></span><span class="hs"><span class="hsl">DONE</span><span class="hsv">5/15</span></span></div><button class="sos on" type="button" title="Report vehicle issue" aria-label="Report vehicle issue"><svg><use href="#i-warn"/></svg></button></div>
             <div class="pbody">
               <div class="plabel">What's the problem?</div>
               <div class="pinput" style="border-color:var(--amber);color:var(--ink)">🔧 Vehicle breakdown<span class="cv" style="color:var(--amber)">◉</span></div>
@@ -768,14 +792,14 @@
             </div>
           </div>
         </div>
-        <div class="cap" style="max-width:248px"><div class="ct"><span class="cn">B10</span>Report vehicle issue</div><div class="cd">Crew flags a breakdown or device issue; an alert with live location reaches organizers (A1 ⚠ Alerts, A6 monitor).</div></div>
+        <div class="cap" style="max-width:248px"><div class="ct"><span class="cn">B10</span>Report vehicle issue</div><div class="cd">Reached from the amber control in the app bar of any in-progress screen (B2–B8), so a crew never has to finish or abandon a task first. Crew flags a breakdown or device issue; an alert with live location reaches organizers (A1 ⚠ Alerts, A6 monitor).</div></div>
       </div>
 
     </div>
     </div>
     <div class="annot">
       <div class="al">Annotation · Micro app</div>
-      <div class="ax">No per-user login — the device binds to a vehicle + crew (screen B1) and holds a team token. Tasks share one screen shell whose body is chosen by task type. Sensor tasks use Geolocation, DeviceMotion, and camera/BarcodeDetector; BLE beacon tasks fall back to QR/geofence checkpoints on iOS Safari.</div>
+      <div class="ax"><b>The amber ⚠ control in the app bar opens B10 from every in-progress screen (B2–B8)</b> — a breakdown does not wait for a crew to finish the task they are on, so the action is one tap from anywhere. It lives in the header beside SCORE / DONE (the <code>AppBarStats</code> component) rather than in each screen body, so it costs no layout space and never competes with the primary action. It is absent on B1, where no vehicle is bound yet and there is nothing to report against, and on B9, where the run is over and the score locked. No per-user login — the device binds to a vehicle + crew (screen B1) and holds a team token. Tasks share one screen shell whose body is chosen by task type. Sensor tasks use Geolocation, DeviceMotion, and camera/BarcodeDetector; BLE beacon tasks fall back to QR/geofence checkpoints on iOS Safari.</div>
     </div>
   </section>
 
