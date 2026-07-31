@@ -32,6 +32,25 @@ curl localhost:8080/health
 `make migrate-up` applies the schema and exits, for a deploy step that wants
 migrations separate from the rollout.
 
+## Poking at it by hand
+
+Import [`api/rally.postman_collection.json`](api/rally.postman_collection.json)
+into Postman. Run the folders top to bottom: each request that creates something
+stores its id in a collection variable, so the whole rally — set up a course,
+provision a car, bind a phone, drive into a geofence, submit a task, finish —
+runs without editing a single id by hand.
+
+Organizer requests use `{{organizerToken}}`, which a collection pre-request
+script mints for decode-only mode when it is empty. That token only works
+locally; paste a real Asgardeo id token in for a deployed environment. Crew
+requests use `{{teamToken}}`, captured from `POST /sessions/bind`.
+
+It runs headless too, which is the fastest smoke test of a live server:
+
+```bash
+npx newman run api/rally.postman_collection.json
+```
+
 ## Testing
 
 ```bash
