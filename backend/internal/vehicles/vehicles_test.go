@@ -129,8 +129,8 @@ func validInput() CreateVehicleInput {
 		ContactNumber: "+94771234567",
 		RouteID:       "route-inland",
 		Crew: []CrewMemberInput{
-			{Name: "Nimal", Role: RoleNavigator, OriginCountry: "LK"},
-			{Name: "Sunil"},
+			{Name: "Nimal", PhoneNumber: "0771112233", Role: RoleNavigator, OriginCountry: "LK"},
+			{Name: "Sunil", PhoneNumber: "0719998877"},
 		},
 	}
 }
@@ -159,6 +159,10 @@ func TestService_Create_Validation(t *testing.T) {
 		{"blank team", func(in *CreateVehicleInput) { in.TeamName = "" }, "team name"},
 		{"blank crew name", func(in *CreateVehicleInput) { in.Crew[1].Name = " " }, "crew member name"},
 		{"unknown crew role", func(in *CreateVehicleInput) { in.Crew[0].Role = "driver" }, "crew role"},
+		// A member joins by typing the last four digits of their own number, so
+		// one without a number on file could never get into the car.
+		{"blank crew phone", func(in *CreateVehicleInput) { in.Crew[1].PhoneNumber = " " }, "phone number"},
+		{"crew phone too short", func(in *CreateVehicleInput) { in.Crew[0].PhoneNumber = "123" }, "phone number"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -186,7 +190,7 @@ func TestService_Update_ReplacesCrewWholesale(t *testing.T) {
 	svc := NewService(newFakeRepo())
 	created, err := svc.Create(context.Background(), validInput())
 	require.NoError(t, err)
-	newCrew := []CrewMemberInput{{Name: "Kamala", Role: RoleNavigator}}
+	newCrew := []CrewMemberInput{{Name: "Kamala", PhoneNumber: "0761234567", Role: RoleNavigator}}
 
 	updated, err := svc.Update(context.Background(), created.ID, UpdateVehicleInput{Crew: &newCrew})
 
@@ -221,9 +225,11 @@ func TestService_SetStatus_RejectsUnknownStatus(t *testing.T) {
 	require.ErrorIs(t, err, apperr.ErrValidation)
 }
 
+// Each crew member is Name:phone. A bare name is rejected, because the phone
+// number is what lets that member join their car.
 const importCSV = `code,team_name,vehicle_type,contact_number,route_name,crew_names
-PKT-001,Packet Pioneers,SUV,+94771234567,Inland,Nimal|Sunil
-PKT-002,Byte Brigade,Van,+94777654321,Wetlands,Kamala
+PKT-001,Packet Pioneers,SUV,+94771234567,Inland,Nimal:0771112233|Sunil:0719998877
+PKT-002,Byte Brigade,Van,+94777654321,Wetlands,Kamala:0761234567
 `
 
 func TestService_ImportCSV_CreatesVehiclesAndCrew(t *testing.T) {
@@ -242,9 +248,49 @@ func TestService_ImportCSV_CreatesVehiclesAndCrew(t *testing.T) {
 	require.Equal(t, "PKT-001", stored[0].Code)
 	require.Equal(t, "route-inland", stored[0].RouteID, "route names resolve to ids")
 	require.Len(t, stored[0].Crew, 2)
-	require.Equal(t, RoleNavigator, stored[0].Crew[0].Role, "the first crew member holds the phone")
+	require.Equal(t, RoleNavigator, stored[0].Crew[0].Role, "the first crew member is the expected navigator")
 	require.Equal(t, RoleNode, stored[0].Crew[1].Role)
+	require.Equal(t, "Nimal", stored[0].Crew[0].Name)
+	require.Equal(t, "0771112233", stored[0].Crew[0].PhoneNumber)
+	require.Equal(t, "0719998877", stored[0].Crew[1].PhoneNumber)
 	require.Equal(t, "route-wetlands", stored[1].RouteID)
+}
+
+func TestService_ImportCSV_RequiresPhonePerCrewMember(t *testing.T) {
+	tests := map[string]string{
+		"bare name":         "Nimal",
+		"one of two bare":   "Nimal:0771112233|Sunil",
+		"empty phone":       "Nimal:",
+		"empty name":        ":0771112233",
+		"phone too short":   "Nimal:123",
+		"phone not digits":  "Nimal:abcdefg",
+		"separator missing": "Nimal 0771112233",
+	}
+	for name, crew := range tests {
+		t.Run(name, func(t *testing.T) {
+			body := "code,team_name,vehicle_type,contact_number,route_name,crew_names\n" +
+				"PKT-001,Team,SUV,1,Inland," + crew + "\n"
+
+			_, err := NewService(newFakeRepo()).ImportCSV(context.Background(), eventID, strings.NewReader(body))
+
+			require.ErrorIs(t, err, apperr.ErrValidation)
+		})
+	}
+}
+
+// A file that names a member without a number must be rejected whole, not
+// imported with an unjoinable crew — the same all-or-nothing rule the rest of
+// the importer follows.
+func TestService_ImportCSV_MissingPhoneLeavesNothingBehind(t *testing.T) {
+	repo := newFakeRepo()
+	body := "code,team_name,vehicle_type,contact_number,route_name,crew_names\n" +
+		"PKT-001,Team One,SUV,1,Inland,Nimal:0771112233\n" +
+		"PKT-002,Team Two,Van,2,Inland,Sunil\n"
+
+	_, err := NewService(repo).ImportCSV(context.Background(), eventID, strings.NewReader(body))
+
+	require.ErrorIs(t, err, apperr.ErrValidation)
+	require.Empty(t, repo.stored)
 }
 
 func TestService_ImportCSV_Rejections(t *testing.T) {
@@ -257,7 +303,7 @@ func TestService_ImportCSV_Rejections(t *testing.T) {
 		{"header only", "code,team_name,vehicle_type,contact_number,route_name,crew_names\n", "no vehicles"},
 		{
 			"wrong columns",
-			"vehicle,team,type,phone,route,crew\nPKT-001,T,SUV,1,Inland,A\n",
+			"vehicle,team,type,phone,route,crew\nPKT-001,T,SUV,1,Inland,A:0771112233\n",
 			"column 1",
 		},
 		{
@@ -272,13 +318,13 @@ func TestService_ImportCSV_Rejections(t *testing.T) {
 		},
 		{
 			"unknown route",
-			"code,team_name,vehicle_type,contact_number,route_name,crew_names\nPKT-001,Team,SUV,1,Highlands,A\n",
+			"code,team_name,vehicle_type,contact_number,route_name,crew_names\nPKT-001,Team,SUV,1,Highlands,A:0771112233\n",
 			"does not exist",
 		},
 		{
 			"duplicate code within the file",
 			"code,team_name,vehicle_type,contact_number,route_name,crew_names\n" +
-				"PKT-001,Team,SUV,1,Inland,A\nPKT-001,Other,Van,2,Inland,B\n",
+				"PKT-001,Team,SUV,1,Inland,A:0771112233\nPKT-001,Other,Van,2,Inland,B:0719998877\n",
 			"more than once",
 		},
 		{
@@ -301,7 +347,7 @@ func TestService_ImportCSV_Rejections(t *testing.T) {
 func TestService_ImportCSV_IsAllOrNothing(t *testing.T) {
 	repo := newFakeRepo()
 	body := "code,team_name,vehicle_type,contact_number,route_name,crew_names\n" +
-		"PKT-001,Team One,SUV,1,Inland,A\nPKT-002,Team Two,Van,2,Highlands,B\n"
+		"PKT-001,Team One,SUV,1,Inland,A:0771112233\nPKT-002,Team Two,Van,2,Highlands,B:0719998877\n"
 
 	_, err := NewService(repo).ImportCSV(context.Background(), eventID, strings.NewReader(body))
 

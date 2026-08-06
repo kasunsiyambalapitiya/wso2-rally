@@ -19,12 +19,15 @@ package sessions
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/alerts"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/apperr"
+	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/authz"
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/tasks"
 )
 
@@ -34,22 +37,34 @@ const (
 	testRouteID   = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	crewA         = "crew-a"
 	crewB         = "crew-b"
+	// The last four digits of each roster number below, which is what a member
+	// types on the join screen.
+	crewALast4 = "2233"
+	crewBLast4 = "8877"
 )
 
-// fakeRepo is an in-memory Repo. It enforces the one-live-session rule the
-// real schema enforces with a unique index.
+// fakeRepo is an in-memory Repo. It enforces the one-live-session rule and the
+// one-phone-per-member rule that the real schema enforces with unique indexes.
 type fakeRepo struct {
-	sessions    map[string]Session
-	vouchers    map[string]Voucher
-	event       EventInfo
-	waypoints   []WaypointGeo
-	routeID     string
-	crew        []string
+	sessions  map[string]Session
+	vouchers  map[string]Voucher
+	event     EventInfo
+	waypoints []WaypointGeo
+	routeID   string
+	// crew is the vehicle's roster, written the way real numbers are: spaced,
+	// prefixed, inconsistent — because the last-four check has to cope with that.
+	crew        []CrewRosterMember
 	taskStates  []TaskState
 	noVehicle   bool
 	submittable map[string]SubmittableTask
 	totals      map[string]int
-	submissions map[string]map[string]int
+	// submissions is keyed sessionID -> taskID, mirroring the unique index that
+	// decides which phone won the task.
+	submissions map[string]map[string]Submission
+	// devices is keyed sessionID -> crewMemberID, mirroring uq_device_per_member.
+	devices map[string]map[string]Device
+	// visits is keyed sessionID -> waypointID, mirroring session_waypoint_visit.
+	visits map[string]map[string]bool
 }
 
 func newFakeRepo() *fakeRepo {
@@ -72,7 +87,11 @@ func newFakeRepo() *fakeRepo {
 			Finish:    GeoCircle{Lat: 6.8480, Lng: 79.9280, RadiusM: 30, Placed: true},
 		},
 		routeID: testRouteID,
-		crew:    []string{crewA, crewB},
+		devices: map[string]map[string]Device{},
+		crew: []CrewRosterMember{
+			{ID: crewA, Name: "Nimal Perera", PhoneNumber: "+94 77 111 2233", Role: "navigator"},
+			{ID: crewB, Name: "Ayesha Fernando", PhoneNumber: "071-999-8877", Role: "node"},
+		},
 		waypoints: []WaypointGeo{
 			waypointAt("wp-1", 0, atKandy, WaypointTask{ID: "task-1", Type: tasks.TypeInputSelect}),
 			waypointAt("wp-2", 1, LatLng{Lat: 6.8700, Lng: 79.9240},
@@ -81,13 +100,13 @@ func newFakeRepo() *fakeRepo {
 	}
 }
 
-func (f *fakeRepo) BindTargetOf(_ context.Context, vehicleID string) (BindTarget, error) {
+func (f *fakeRepo) JoinTargetOf(_ context.Context, vehicleID string) (JoinTarget, error) {
 	if f.noVehicle {
-		return BindTarget{}, ErrVehicleNotFound
+		return JoinTarget{}, ErrVehicleNotFound
 	}
-	return BindTarget{
+	return JoinTarget{
 		EventID: testEventID, RouteID: f.routeID,
-		Code: "PKT-001", TeamName: "Packet Pioneers", CrewMemberID: f.crew,
+		Code: "PKT-001", TeamName: "Packet Pioneers", Crew: f.crew,
 	}, nil
 }
 
@@ -99,6 +118,100 @@ func (f *fakeRepo) CreateSession(_ context.Context, s Session) error {
 	}
 	f.sessions[s.ID] = s
 	return nil
+}
+
+func (f *fakeRepo) LiveSessionOf(_ context.Context, vehicleID string) (Session, error) {
+	for _, existing := range f.sessions {
+		if existing.VehicleID == vehicleID && existing.Status.IsLive() {
+			return existing, nil
+		}
+	}
+	return Session{}, ErrNoLiveSession
+}
+
+// UpsertDevice mirrors the real upsert: one row per member, and a repeat join
+// returns the row that already exists rather than adding a second phone.
+func (f *fakeRepo) UpsertDevice(_ context.Context, sessionID, crewMemberID string) (Device, error) {
+	if f.devices[sessionID] == nil {
+		f.devices[sessionID] = map[string]Device{}
+	}
+	if existing, ok := f.devices[sessionID][crewMemberID]; ok {
+		return existing, nil
+	}
+
+	name := crewMemberID
+	for _, member := range f.crew {
+		if member.ID == crewMemberID {
+			name = member.Name
+			break
+		}
+	}
+
+	device := Device{
+		ID:             "device-" + crewMemberID,
+		SessionID:      sessionID,
+		CrewMemberID:   crewMemberID,
+		CrewMemberName: name,
+		JoinedAt:       time.Now().UTC(),
+	}
+	f.devices[sessionID][crewMemberID] = device
+	return device, nil
+}
+
+func (f *fakeRepo) DevicesOf(_ context.Context, sessionID string) ([]Device, error) {
+	devices := make([]Device, 0, len(f.devices[sessionID]))
+	for _, device := range f.devices[sessionID] {
+		devices = append(devices, device)
+	}
+	// Map iteration is random; sort so assertions on order are stable.
+	sort.Slice(devices, func(i, j int) bool { return devices[i].ID < devices[j].ID })
+	return devices, nil
+}
+
+func (f *fakeRepo) DeviceOf(_ context.Context, deviceID string) (Device, error) {
+	for _, bySession := range f.devices {
+		for _, device := range bySession {
+			if device.ID == deviceID {
+				return device, nil
+			}
+		}
+	}
+	return Device{}, ErrDeviceNotFound
+}
+
+func (f *fakeRepo) TouchDevice(_ context.Context, deviceID string, at time.Time) error {
+	for sessionID, bySession := range f.devices {
+		for crewMemberID, device := range bySession {
+			if device.ID == deviceID {
+				device.LastSeenAt = &at
+				f.devices[sessionID][crewMemberID] = device
+				return nil
+			}
+		}
+	}
+	return ErrDeviceNotFound
+}
+
+// ClaimWaypointVisits mirrors the real edge detector: a boundary is "fresh" only
+// the first time the car is inside it.
+func (f *fakeRepo) ClaimWaypointVisits(
+	_ context.Context, sessionID string, waypointIDs []string,
+) ([]string, error) {
+	if f.visits == nil {
+		f.visits = map[string]map[string]bool{}
+	}
+	if f.visits[sessionID] == nil {
+		f.visits[sessionID] = map[string]bool{}
+	}
+
+	var fresh []string
+	for _, waypointID := range waypointIDs {
+		if !f.visits[sessionID][waypointID] {
+			f.visits[sessionID][waypointID] = true
+			fresh = append(fresh, waypointID)
+		}
+	}
+	return fresh, nil
 }
 
 func (f *fakeRepo) GetSession(_ context.Context, id string) (Session, error) {
@@ -154,35 +267,56 @@ func (f *fakeRepo) SubmittableTaskOf(_ context.Context, taskID string) (Submitta
 	return task, nil
 }
 
-// SaveSubmission mirrors the real repository: the total is recomputed from the
-// stored attempts, so a resubmission replaces rather than adds.
+// SaveSubmission mirrors the real repository's race: the first attempt at a task
+// claims it for the car, and a later one is told who won rather than overwriting
+// the score. The unique index does this for real; here a map lookup stands in.
 func (f *fakeRepo) SaveSubmission(_ context.Context, sub Submission) (int, error) {
 	if f.submissions == nil {
-		f.submissions = map[string]map[string]int{}
+		f.submissions = map[string]map[string]Submission{}
 	}
 	if f.submissions[sub.SessionID] == nil {
-		f.submissions[sub.SessionID] = map[string]int{}
+		f.submissions[sub.SessionID] = map[string]Submission{}
 	}
-	f.submissions[sub.SessionID][sub.TaskID] = sub.AwardedPoints
+
+	if won, taken := f.submissions[sub.SessionID][sub.TaskID]; taken {
+		return 0, ErrTaskClaimedBy(TaskWinner{
+			CrewMemberID:   won.CrewMemberID,
+			CrewMemberName: f.crewNameOf(won.CrewMemberID),
+			AwardedPoints:  won.AwardedPoints,
+		})
+	}
+	f.submissions[sub.SessionID][sub.TaskID] = sub
 
 	total := 0
-	for _, points := range f.submissions[sub.SessionID] {
-		total += points
+	for _, stored := range f.submissions[sub.SessionID] {
+		total += stored.AwardedPoints
 	}
 	f.totals[sub.SessionID] = total
 
 	return total, nil
 }
 
+func (f *fakeRepo) crewNameOf(crewMemberID string) string {
+	for _, member := range f.crew {
+		if member.ID == crewMemberID {
+			return member.Name
+		}
+	}
+
+	return ""
+}
+
 // stubMinter issues a predictable token so tests can assert it reached the
-// caller without decoding a JWT.
+// caller without decoding a JWT. It keys on the device rather than the session,
+// because every phone in a car shares the session and two phones must not come
+// away with the same token.
 type stubMinter struct{ err error }
 
-func (s stubMinter) Mint(sessionID, _ string) (string, error) {
+func (s stubMinter) Mint(claims authz.TeamClaims) (string, error) {
 	if s.err != nil {
 		return "", s.err
 	}
-	return "token-for-" + sessionID, nil
+	return "token-for-" + claims.DeviceID, nil
 }
 
 // recordingAlerts captures crew reports instead of persisting them.
@@ -216,105 +350,162 @@ func newService(t *testing.T) (*Service, *fakeRepo, *recordingAlerts, *[]broadca
 	return svc, repo, alertRaiser, &sent
 }
 
+// joinAs puts one member's phone into the car and returns the result.
+func joinAs(t *testing.T, svc *Service, crewMemberID, last4 string) JoinResult {
+	t.Helper()
+
+	result, err := svc.Join(context.Background(), JoinInput{
+		VehicleID: testVehicleID, CrewMemberID: crewMemberID, PhoneLast4: last4,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, result.Token)
+
+	return result
+}
+
+// bindOnce keeps the older tests readable: one phone aboard, session returned.
 func bindOnce(t *testing.T, svc *Service) Session {
 	t.Helper()
 
-	session, token, err := svc.Bind(context.Background(), BindInput{
-		VehicleID: testVehicleID, CrewMemberIDs: []string{crewA},
-	})
-	require.NoError(t, err)
-	require.NotEmpty(t, token)
-
-	return session
+	return joinAs(t, svc, crewA, crewALast4).Session
 }
 
-func TestService_Bind_IssuesTokenAndBoundSession(t *testing.T) {
+func TestService_Join_FirstMemberCreatesTheSession(t *testing.T) {
 	svc, _, _, _ := newService(t)
 
-	session, token, err := svc.Bind(context.Background(), BindInput{
-		VehicleID: testVehicleID, CrewMemberIDs: []string{crewA, crewB},
-	})
+	result := joinAs(t, svc, crewA, crewALast4)
 
-	require.NoError(t, err)
-	require.Len(t, session.ID, 32)
-	require.Equal(t, StatusBound, session.Status)
-	require.Equal(t, testEventID, session.EventID)
-	require.NotNil(t, session.BoundAt)
-	require.Equal(t, "token-for-"+session.ID, token)
+	require.Len(t, result.Session.ID, 32)
+	require.Equal(t, StatusBound, result.Session.Status)
+	require.Equal(t, testEventID, result.Session.EventID)
+	require.NotNil(t, result.Session.BoundAt)
+	require.Equal(t, crewA, result.Device.CrewMemberID)
+	require.Equal(t, "Nimal Perera", result.Device.CrewMemberName)
+	require.Equal(t, "token-for-"+result.Device.ID, result.Token)
+	require.Len(t, result.Crew, 1)
 }
 
-// The one-active-phone rule: a second device must be turned away.
-func TestService_Bind_SecondPhoneIsRejected(t *testing.T) {
+// The inversion of the old one-active-phone rule: a second phone is not a
+// conflict, it joins the run the first one started.
+func TestService_Join_SecondMemberJoinsTheSameSession(t *testing.T) {
 	svc, _, _, _ := newService(t)
-	bindOnce(t, svc)
 
-	_, _, err := svc.Bind(context.Background(), BindInput{
-		VehicleID: testVehicleID, CrewMemberIDs: []string{crewA},
-	})
+	first := joinAs(t, svc, crewA, crewALast4)
+	second := joinAs(t, svc, crewB, crewBLast4)
 
-	require.ErrorIs(t, err, ErrAlreadyBound)
-	require.ErrorIs(t, err, apperr.ErrConflict)
+	require.Equal(t, first.Session.ID, second.Session.ID, "the crew must share one run")
+	require.NotEqual(t, first.Device.ID, second.Device.ID, "but not one device")
+	require.NotEqual(t, first.Token, second.Token, "nor one token")
+	require.Len(t, second.Crew, 2, "the second phone sees both aboard")
 }
 
-func TestService_Bind_UnknownVehicle(t *testing.T) {
+// A phone that reboots or clears its storage comes back to the same device row
+// rather than becoming a fifth phone in a four-person car.
+func TestService_Join_RejoinIsIdempotent(t *testing.T) {
+	svc, _, _, _ := newService(t)
+
+	first := joinAs(t, svc, crewA, crewALast4)
+	again := joinAs(t, svc, crewA, crewALast4)
+
+	require.Equal(t, first.Device.ID, again.Device.ID)
+	require.Equal(t, first.Session.ID, again.Session.ID)
+	require.Len(t, again.Crew, 1)
+}
+
+func TestService_Join_RejectsWrongLastFour(t *testing.T) {
+	svc, _, _, _ := newService(t)
+
+	// crewB's digits, presented for crewA.
+	_, err := svc.Join(context.Background(), JoinInput{
+		VehicleID: testVehicleID, CrewMemberID: crewA, PhoneLast4: crewBLast4,
+	})
+
+	require.ErrorIs(t, err, ErrPhoneMismatch)
+	require.ErrorIs(t, err, apperr.ErrForbidden)
+}
+
+// Roster numbers are written inconsistently — "+94 77 111 2233" here,
+// "071-999-8877" there — and a crew member on the roadside types four digits.
+func TestService_Join_IgnoresRosterNumberFormatting(t *testing.T) {
+	svc, _, _, _ := newService(t)
+
+	require.NotPanics(t, func() { joinAs(t, svc, crewA, crewALast4) })
+	require.NotPanics(t, func() { joinAs(t, svc, crewB, crewBLast4) })
+}
+
+func TestService_Join_RejectsMalformedLastFour(t *testing.T) {
+	for _, last4 := range []string{"", "22", "22334", "abcd"} {
+		t.Run("last4="+last4, func(t *testing.T) {
+			svc, _, _, _ := newService(t)
+
+			_, err := svc.Join(context.Background(), JoinInput{
+				VehicleID: testVehicleID, CrewMemberID: crewA, PhoneLast4: last4,
+			})
+
+			require.ErrorIs(t, err, ErrPhoneMismatch)
+		})
+	}
+}
+
+func TestService_Join_RejectsCrewMemberFromAnotherVehicle(t *testing.T) {
+	svc, _, _, _ := newService(t)
+
+	_, err := svc.Join(context.Background(), JoinInput{
+		VehicleID: testVehicleID, CrewMemberID: "someone-else", PhoneLast4: crewALast4,
+	})
+
+	require.ErrorIs(t, err, ErrCrewMemberNotOnVehicle)
+	require.ErrorIs(t, err, apperr.ErrNotFound)
+}
+
+func TestService_Join_UnknownVehicle(t *testing.T) {
 	svc, repo, _, _ := newService(t)
 	repo.noVehicle = true
 
-	_, _, err := svc.Bind(context.Background(), BindInput{
-		VehicleID: testVehicleID, CrewMemberIDs: []string{crewA},
+	_, err := svc.Join(context.Background(), JoinInput{
+		VehicleID: testVehicleID, CrewMemberID: crewA, PhoneLast4: crewALast4,
 	})
 
 	require.ErrorIs(t, err, ErrVehicleNotFound)
 }
 
-func TestService_Bind_RejectsUnpublishedEvent(t *testing.T) {
+func TestService_Join_RejectsUnpublishedEvent(t *testing.T) {
 	svc, repo, _, _ := newService(t)
 	repo.event.Status = "setup"
 
-	_, _, err := svc.Bind(context.Background(), BindInput{
-		VehicleID: testVehicleID, CrewMemberIDs: []string{crewA},
+	_, err := svc.Join(context.Background(), JoinInput{
+		VehicleID: testVehicleID, CrewMemberID: crewA, PhoneLast4: crewALast4,
 	})
 
 	require.ErrorIs(t, err, ErrEventNotActive)
 }
 
-func TestService_Bind_CrewValidation(t *testing.T) {
-	tests := []struct {
-		name string
-		crew []string
-	}{
-		{"no crew selected", nil},
-		{"crew member from another vehicle", []string{"someone-else"}},
+func TestService_Join_RequiresVehicleAndMember(t *testing.T) {
+	tests := map[string]JoinInput{
+		"no vehicle": {CrewMemberID: crewA, PhoneLast4: crewALast4},
+		"no member":  {VehicleID: testVehicleID, PhoneLast4: crewALast4},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	for name, in := range tests {
+		t.Run(name, func(t *testing.T) {
 			svc, _, _, _ := newService(t)
 
-			_, _, err := svc.Bind(context.Background(), BindInput{VehicleID: testVehicleID, CrewMemberIDs: tt.crew})
+			_, err := svc.Join(context.Background(), in)
 
 			require.ErrorIs(t, err, apperr.ErrValidation)
 		})
 	}
 }
 
-func TestService_Bind_RequiresVehicleID(t *testing.T) {
-	svc, _, _, _ := newService(t)
-
-	_, _, err := svc.Bind(context.Background(), BindInput{CrewMemberIDs: []string{crewA}})
-
-	require.ErrorIs(t, err, apperr.ErrValidation)
-}
-
 func TestService_State_RevealsCipherOnlyWhenActive(t *testing.T) {
 	svc, repo, _, _ := newService(t)
 	session := bindOnce(t, svc)
 
-	active, err := svc.State(context.Background(), session.ID)
+	active, err := svc.State(context.Background(), session.ID, "")
 	require.NoError(t, err)
 	require.Equal(t, "API Integration", active.Cipher)
 
 	repo.event.Status = "setup"
-	setup, err := svc.State(context.Background(), session.ID)
+	setup, err := svc.State(context.Background(), session.ID, "")
 	require.NoError(t, err)
 	require.Empty(t, setup.Cipher, "the cipher stays off the wire until the event is live")
 }
@@ -323,7 +514,7 @@ func TestService_State_ReportsTheNextWaypoint(t *testing.T) {
 	svc, _, _, _ := newService(t)
 	session := bindOnce(t, svc)
 
-	state, err := svc.State(context.Background(), session.ID)
+	state, err := svc.State(context.Background(), session.ID, "")
 
 	require.NoError(t, err)
 	require.Equal(t, "wp-1", state.NextWaypointID)
@@ -334,7 +525,7 @@ func TestService_State_ReportsTheNextWaypoint(t *testing.T) {
 func TestService_State_UnknownSession(t *testing.T) {
 	svc, _, _, _ := newService(t)
 
-	_, err := svc.State(context.Background(), "missing")
+	_, err := svc.State(context.Background(), "missing", "")
 
 	require.ErrorIs(t, err, ErrNotFound)
 }
@@ -343,7 +534,7 @@ func TestService_Ping_ActivatesAndUnlocks(t *testing.T) {
 	svc, repo, _, _ := newService(t)
 	session := bindOnce(t, svc)
 
-	result, err := svc.Ping(context.Background(), session.ID, atKandy)
+	result, err := svc.Ping(context.Background(), session.ID, "device-"+crewA, atKandy)
 
 	require.NoError(t, err)
 	require.Equal(t, []string{"task-1"}, result.UnlockedTaskIDs)
@@ -360,7 +551,7 @@ func TestService_Ping_BroadcastsPositionToOrganizers(t *testing.T) {
 	svc, _, _, sent := newService(t)
 	session := bindOnce(t, svc)
 
-	_, err := svc.Ping(context.Background(), session.ID, atKandy)
+	_, err := svc.Ping(context.Background(), session.ID, "device-"+crewA, atKandy)
 
 	require.NoError(t, err)
 	require.Contains(t, topicsOf(*sent), EventTopic(testEventID))
@@ -370,7 +561,7 @@ func TestService_Ping_BroadcastsRestLockToTheCrew(t *testing.T) {
 	svc, _, _, sent := newService(t)
 	session := bindOnce(t, svc)
 
-	_, err := svc.Ping(context.Background(), session.ID, LatLng{Lat: 6.8700, Lng: 79.9240})
+	_, err := svc.Ping(context.Background(), session.ID, "device-"+crewA, LatLng{Lat: 6.8700, Lng: 79.9240})
 
 	require.NoError(t, err)
 	require.Contains(t, topicsOf(*sent), SessionTopic(session.ID))
@@ -380,7 +571,7 @@ func TestService_Ping_ArrivalFinishesAndIssuesVoucher(t *testing.T) {
 	svc, repo, _, _ := newService(t)
 	session := bindOnce(t, svc)
 
-	result, err := svc.Ping(context.Background(), session.ID, LatLng{Lat: 6.8480, Lng: 79.9280})
+	result, err := svc.Ping(context.Background(), session.ID, "device-"+crewA, LatLng{Lat: 6.8480, Lng: 79.9280})
 
 	require.NoError(t, err)
 	require.True(t, result.Arrived)
@@ -399,10 +590,10 @@ func TestService_Ping_ArrivalFinishesAndIssuesVoucher(t *testing.T) {
 func TestService_Ping_AfterFinishIsRejected(t *testing.T) {
 	svc, _, _, _ := newService(t)
 	session := bindOnce(t, svc)
-	_, err := svc.Ping(context.Background(), session.ID, LatLng{Lat: 6.8480, Lng: 79.9280})
+	_, err := svc.Ping(context.Background(), session.ID, "device-"+crewA, LatLng{Lat: 6.8480, Lng: 79.9280})
 	require.NoError(t, err)
 
-	_, err = svc.Ping(context.Background(), session.ID, atKandy)
+	_, err = svc.Ping(context.Background(), session.ID, "device-"+crewA, atKandy)
 
 	require.ErrorIs(t, err, ErrSessionFinished)
 }
@@ -411,7 +602,7 @@ func TestService_Ping_RejectsImpossibleCoordinates(t *testing.T) {
 	svc, _, _, _ := newService(t)
 	session := bindOnce(t, svc)
 
-	_, err := svc.Ping(context.Background(), session.ID, LatLng{Lat: 95, Lng: 0})
+	_, err := svc.Ping(context.Background(), session.ID, "device-"+crewA, LatLng{Lat: 95, Lng: 0})
 
 	require.ErrorIs(t, err, apperr.ErrValidation)
 }
@@ -420,7 +611,7 @@ func TestService_Ping_OutsideEveryBoundaryStillRecordsPosition(t *testing.T) {
 	svc, repo, _, _ := newService(t)
 	session := bindOnce(t, svc)
 
-	result, err := svc.Ping(context.Background(), session.ID, nowhere)
+	result, err := svc.Ping(context.Background(), session.ID, "device-"+crewA, nowhere)
 
 	require.NoError(t, err)
 	require.Empty(t, result.UnlockedTaskIDs)
@@ -501,4 +692,88 @@ func topicsOf(records []broadcastRecord) []string {
 	}
 
 	return topics
+}
+
+// The whole car has to learn a task unlocked, not just the phone that reported.
+// Three of four crew members never ping, so this broadcast is their only signal.
+func TestService_Ping_BroadcastsTaskUnlockedToTheWholeCar(t *testing.T) {
+	svc, _, _, sent := newService(t)
+	session := bindOnce(t, svc)
+
+	_, err := svc.Ping(context.Background(), session.ID, "device-"+crewA, atKandy)
+
+	require.NoError(t, err)
+	require.Contains(t, topicsOf(*sent), SessionTopic(session.ID))
+	require.Contains(t, messageTypes(*sent), "task_unlocked")
+}
+
+// A crew parked inside a waypoint pings every few seconds. Re-firing the unlock
+// each time would restart a timed-trivia countdown on every ping.
+func TestService_Ping_GeofenceEventFiresOnceNotEveryPing(t *testing.T) {
+	svc, _, _, sent := newService(t)
+	session := bindOnce(t, svc)
+	ctx := context.Background()
+
+	first, err := svc.Ping(ctx, session.ID, "device-"+crewA, atKandy)
+	require.NoError(t, err)
+	require.NotEmpty(t, first.UnlockedTaskIDs, "the crossing unlocks the waypoint's tasks")
+
+	*sent = nil
+	second, err := svc.Ping(ctx, session.ID, "device-"+crewA, atKandy)
+
+	require.NoError(t, err)
+	require.Empty(t, second.UnlockedTaskIDs, "still parked in the same circle, nothing is new")
+	require.Empty(t, second.Events, "and no event is re-fired")
+	require.NotContains(t, messageTypes(*sent), "task_unlocked")
+	require.Equal(t, first.CurrentWaypointID, second.CurrentWaypointID,
+		"where the car is stays true even when nothing is new")
+}
+
+// Reporting is open to any phone so the car stays covered while the driver is in
+// Google Maps. That makes a plausibility gate the precondition: without it, a
+// teammate's phone at the finish line would end the run for a car still out on
+// the course.
+func TestService_Ping_ImplausibleJumpDoesNotUnlockOrFinish(t *testing.T) {
+	svc, repo, _, _ := newService(t)
+	session := bindOnce(t, svc)
+	ctx := context.Background()
+	// Establish a real position first, so there is something to jump from.
+	_, err := svc.Ping(ctx, session.ID, "device-"+crewA, LatLng{Lat: 6.9000, Lng: 79.9200})
+	require.NoError(t, err)
+
+	// The finish line, moments later. Reachable only by teleporting.
+	result, err := svc.Ping(ctx, session.ID, "device-"+crewB, LatLng{Lat: 6.8480, Lng: 79.9280})
+
+	require.NoError(t, err, "the fix is recorded, not rejected")
+	require.False(t, result.Arrived, "but it must not finish the run")
+	require.Empty(t, result.UnlockedTaskIDs)
+	stored, err := repo.GetSession(ctx, session.ID)
+	require.NoError(t, err)
+	require.NotEqual(t, StatusFinished, stored.Status)
+}
+
+// The first fix of a run has nothing to compare against, so it must be accepted
+// — otherwise no run could ever start.
+func TestService_Ping_FirstFixIsAlwaysPlausible(t *testing.T) {
+	svc, _, _, _ := newService(t)
+	session := bindOnce(t, svc)
+
+	result, err := svc.Ping(context.Background(), session.ID, "device-"+crewA, atKandy)
+
+	require.NoError(t, err)
+	require.NotEmpty(t, result.UnlockedTaskIDs)
+}
+
+// A phone counts as sharing location because it reported, not because it holds a
+// role. This is what lets a crew see whether anyone is still covering the car.
+func TestService_Ping_MarksThePhoneAsSharing(t *testing.T) {
+	svc, _, _, _ := newService(t)
+	joined := joinAs(t, svc, crewA, crewALast4)
+
+	_, err := svc.Ping(context.Background(), joined.Session.ID, joined.Device.ID, atKandy)
+	require.NoError(t, err)
+
+	state, err := svc.State(context.Background(), joined.Session.ID, joined.Device.ID)
+	require.NoError(t, err)
+	require.True(t, state.You.IsSharing(time.Now().UTC()), "the phone that pinged is sharing")
 }

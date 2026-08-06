@@ -26,6 +26,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
@@ -123,4 +124,37 @@ func InTx(ctx context.Context, db *sql.DB, fn func(*sql.Tx) error) (err error) {
 func IsDuplicateKey(err error) bool {
 	var mysqlErr *mysql.MySQLError
 	return errors.As(err, &mysqlErr) && mysqlErr.Number == duplicateEntryErrNo
+}
+
+// IsDuplicateKeyOn reports whether err is a unique-index violation on one
+// specific index, named without its table qualifier.
+//
+// IsDuplicateKey is too coarse where the collision decides a rule rather than
+// merely reporting a conflict. Claiming a task races every phone in the car for
+// uq_submission_session_task, and losing that race means "someone already
+// answered"; a collision on any *other* index — a PRIMARY KEY clash from
+// NewID(), or an index added later — means something quite different and must
+// not be reported as a lost race.
+//
+// The index name is matched inside MySQL's message, which reads:
+//
+//	Duplicate entry 'x-y' for key 'task_submission.uq_submission_session_task'
+//
+// Matching a message is unlovely, but the protocol carries the index name
+// nowhere else, and the alternative is inferring the cause from an error that
+// cannot distinguish it.
+func IsDuplicateKeyOn(err error, index string) bool {
+	if !IsDuplicateKey(err) || index == "" {
+		return false
+	}
+
+	var mysqlErr *mysql.MySQLError
+	if !errors.As(err, &mysqlErr) {
+		return false
+	}
+
+	// The quotes matter: they stop "uq_x" from matching "uq_x_and_y", and the
+	// leading separator stops it from matching a table called uq_x.
+	return strings.Contains(mysqlErr.Message, "."+index+"'") ||
+		strings.Contains(mysqlErr.Message, "'"+index+"'")
 }

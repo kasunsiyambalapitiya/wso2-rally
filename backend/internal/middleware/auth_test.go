@@ -61,7 +61,7 @@ func TestAuth_MalformedHeaderIs401(t *testing.T) {
 }
 
 func TestAuth_TeamTokenPopulatesIdentity(t *testing.T) {
-	tok, err := authz.MintTeamToken(teamSecret, "sess1", "veh1", time.Hour)
+	tok, err := authz.MintTeamToken(teamSecret, authz.TeamClaims{SessionID: "sess1", VehicleID: "veh1", DeviceID: "dev1", CrewMemberID: "crew1"}, time.Hour)
 	require.NoError(t, err)
 	var got authz.Identity
 
@@ -86,7 +86,7 @@ func TestAuth_FallsBackToOrganizerValidator(t *testing.T) {
 // A team token signed with the wrong secret must not fall through to the
 // organizer validator and be accepted as staff.
 func TestAuth_RejectsTeamTokenWithWrongSecret(t *testing.T) {
-	tok, err := authz.MintTeamToken("a-different-secret", "sess1", "veh1", time.Hour)
+	tok, err := authz.MintTeamToken("a-different-secret", authz.TeamClaims{SessionID: "sess1", VehicleID: "veh1", DeviceID: "dev1", CrewMemberID: "crew1"}, time.Hour)
 	require.NoError(t, err)
 
 	rr := serve(t, Auth(testConfig(), rejectingValidator()), nil, "Bearer "+tok)

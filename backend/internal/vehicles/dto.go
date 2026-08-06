@@ -20,6 +20,7 @@ package vehicles
 type CrewMemberDTO struct {
 	ID            string `json:"id"`
 	Name          string `json:"name"`
+	PhoneNumber   string `json:"phoneNumber"`
 	Role          string `json:"role"`
 	OriginCountry string `json:"originCountry"`
 }
@@ -40,6 +41,7 @@ type VehicleDTO struct {
 // CrewMemberRequest is one crew member on a create or update body.
 type CrewMemberRequest struct {
 	Name          string `json:"name"`
+	PhoneNumber   string `json:"phoneNumber"`
 	Role          string `json:"role"`
 	OriginCountry string `json:"originCountry"`
 }
@@ -83,6 +85,7 @@ func toDTO(v Vehicle) VehicleDTO {
 		crew = append(crew, CrewMemberDTO{
 			ID:            member.ID,
 			Name:          member.Name,
+			PhoneNumber:   member.PhoneNumber,
 			Role:          string(member.Role),
 			OriginCountry: member.OriginCountry,
 		})
@@ -115,6 +118,7 @@ func toCrewInputs(requests []CrewMemberRequest) []CrewMemberInput {
 	for _, req := range requests {
 		out = append(out, CrewMemberInput{
 			Name:          req.Name,
+			PhoneNumber:   req.PhoneNumber,
 			Role:          CrewRole(req.Role),
 			OriginCountry: req.OriginCountry,
 		})

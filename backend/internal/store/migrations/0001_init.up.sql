@@ -99,6 +99,16 @@ CREATE TABLE crew_member (
   id             CHAR(32)     NOT NULL PRIMARY KEY,
   vehicle_id     CHAR(32)     NOT NULL,
   name           VARCHAR(200) NOT NULL,
+  -- A member joins their car's session by typing the last four digits of this
+  -- number. Stored whole so the roster stays useful to organizers, but never
+  -- returned to a phone: only the last four are ever compared, server-side.
+  --
+  -- NOT NULL with no DEFAULT on purpose. A member without a number could never
+  -- prove who they are, so strict mode rejecting the INSERT is better than
+  -- seeding a roster that looks provisioned and cannot be joined.
+  phone_number   VARCHAR(40)  NOT NULL,
+  -- Roster metadata: who is expected to navigate. It confers nothing at run
+  -- time — every member's phone has the same powers once joined.
   role           ENUM('navigator','node') NOT NULL DEFAULT 'node',
   origin_country VARCHAR(80)  NULL,
   KEY idx_crew_vehicle (vehicle_id),
@@ -119,10 +129,15 @@ CREATE TABLE team_session (
   last_lat            DOUBLE    NULL,
   last_lng            DOUBLE    NULL,
   last_ping_at        TIMESTAMP NULL,
-  -- One active phone per vehicle: 1 while the session is live, NULL once it is
+  -- One live session per vehicle: 1 while the session is live, NULL once it is
   -- finished. MySQL treats NULLs as distinct in a unique index, so a vehicle
   -- can hold at most one bound-or-active session while still accumulating any
   -- number of finished ones.
+  --
+  -- This is no longer a "one active phone" gate. Every phone in the car shares
+  -- this one session (see session_device), and the index is what makes that
+  -- true: the first member to join creates the row, and the rest collide with
+  -- it and join what they find, so a crew cannot end up split across two runs.
   active_flag         TINYINT GENERATED ALWAYS AS (
                         CASE WHEN status IN ('bound','active') THEN 1 ELSE NULL END
                       ) STORED,
@@ -134,6 +149,48 @@ CREATE TABLE team_session (
   CONSTRAINT fk_session_waypoint FOREIGN KEY (current_waypoint_id) REFERENCES waypoint (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- One row per phone in the car. The whole crew shares a session; this is what
+-- distinguishes the phones inside it, so a handler can tell which one called.
+CREATE TABLE session_device (
+  id             CHAR(32)  NOT NULL PRIMARY KEY,
+  session_id     CHAR(32)  NOT NULL,
+  crew_member_id CHAR(32)  NOT NULL,
+  joined_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  -- Last time this phone was heard from. "Who is sharing location" is derived
+  -- from this rather than stored as a role: whichever phones reported recently
+  -- are the ones covering the car. There is no designated provider to elect,
+  -- hand over, or get stuck, and a phone that goes quiet simply stops counting.
+  last_seen_at   TIMESTAMP NULL,
+  -- One phone per member, so a rebooted or borrowed phone re-joins onto the row
+  -- it already had instead of becoming a fifth device.
+  UNIQUE KEY uq_device_per_member (session_id, crew_member_id),
+  KEY idx_device_seen (session_id, last_seen_at),
+  CONSTRAINT fk_device_session FOREIGN KEY (session_id) REFERENCES team_session (id) ON DELETE CASCADE,
+  CONSTRAINT fk_device_crew FOREIGN KEY (crew_member_id) REFERENCES crew_member (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Which boundaries a car has already entered.
+--
+-- Geofence events must be edge-triggered: a crew parked inside a waypoint pings
+-- every few seconds, and re-firing the unlock each time would restart a trivia
+-- timer on every ping. Inserting here is the edge — the insert either claims the
+-- crossing or reports it was already claimed, atomically, with no in-memory
+-- state to keep and nothing to get out of step across replicas.
+--
+-- Claim it with ON DUPLICATE KEY UPDATE session_id = session_id, NOT with
+-- INSERT IGNORE. Both report zero affected rows for a repeat ping, but IGNORE
+-- also downgrades a foreign-key violation to a warning and returns zero — so a
+-- waypoint id that does not exist would read as "already visited" and silently
+-- swallow the unlock. ON DUPLICATE KEY raises 1452 for that instead.
+CREATE TABLE session_waypoint_visit (
+  session_id       CHAR(32)  NOT NULL,
+  waypoint_id      CHAR(32)  NOT NULL,
+  first_entered_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (session_id, waypoint_id),
+  CONSTRAINT fk_visit_session FOREIGN KEY (session_id) REFERENCES team_session (id) ON DELETE CASCADE,
+  CONSTRAINT fk_visit_waypoint FOREIGN KEY (waypoint_id) REFERENCES waypoint (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE task_submission (
   id             CHAR(32)  NOT NULL PRIMARY KEY,
   session_id     CHAR(32)  NOT NULL,
@@ -143,11 +200,22 @@ CREATE TABLE task_submission (
   payload        JSON      NULL,
   awarded_points INT       NOT NULL DEFAULT 0,
   submitted_at   TIMESTAMP NULL,
-  -- A task is scored once per session; resubmission updates this row.
+  -- The crew member whose phone won this task.
+  --
+  -- ON DELETE SET NULL, not CASCADE: updating a vehicle replaces its crew rows
+  -- wholesale, and a re-typed roster must never delete the score the car
+  -- earned. Losing the attribution is acceptable; losing the points is not.
+  crew_member_id CHAR(32)  NULL,
+  -- First answer wins for the vehicle. Every phone in the car races for this
+  -- key, so the index is the arbiter: the winner's INSERT succeeds and a
+  -- latecomer's fails, rather than overwriting a score that was already earned.
+  -- The row is never updated once claimed.
   UNIQUE KEY uq_submission_session_task (session_id, task_id),
   KEY idx_submission_task (task_id),
+  KEY idx_submission_crew (crew_member_id),
   CONSTRAINT fk_submission_session FOREIGN KEY (session_id) REFERENCES team_session (id) ON DELETE CASCADE,
   CONSTRAINT fk_submission_task FOREIGN KEY (task_id) REFERENCES task (id) ON DELETE CASCADE,
+  CONSTRAINT fk_submission_crew FOREIGN KEY (crew_member_id) REFERENCES crew_member (id) ON DELETE SET NULL,
   CONSTRAINT fk_submission_waypoint FOREIGN KEY (waypoint_id) REFERENCES waypoint (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

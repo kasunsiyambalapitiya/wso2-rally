@@ -27,8 +27,15 @@ import (
 
 const testSecret = "test-secret"
 
+var testTeamClaims = TeamClaims{
+	SessionID:    "sess1",
+	VehicleID:    "veh1",
+	DeviceID:     "dev1",
+	CrewMemberID: "crew1",
+}
+
 func TestMintTeamToken_RoundTrip(t *testing.T) {
-	tok, err := MintTeamToken(testSecret, "sess1", "veh1", time.Hour)
+	tok, err := MintTeamToken(testSecret, testTeamClaims, time.Hour)
 	require.NoError(t, err)
 
 	id, err := VerifyTeamToken(testSecret, tok)
@@ -39,14 +46,45 @@ func TestMintTeamToken_RoundTrip(t *testing.T) {
 	require.Equal(t, "veh1", id.VehicleID)
 }
 
+// Every phone in a car shares one session, so the session id alone no longer
+// says who is calling. Handlers need the device and the member behind it to
+// record who answered a task and to report who is sharing location.
+func TestMintTeamToken_CarriesDeviceAndCrew(t *testing.T) {
+	tok, err := MintTeamToken(testSecret, testTeamClaims, time.Hour)
+	require.NoError(t, err)
+
+	id, err := VerifyTeamToken(testSecret, tok)
+
+	require.NoError(t, err)
+	require.Equal(t, "dev1", id.DeviceID)
+	require.Equal(t, "crew1", id.CrewMemberID)
+}
+
+// A token minted before phones became distinguishable identifies a session but
+// no device. It must fail closed so the phone re-joins, rather than reaching a
+// handler that would then have to invent a device for it.
+func TestVerifyTeamToken_RejectsTokenWithoutDevice(t *testing.T) {
+	tok, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"iss": teamTokenIssuer,
+		"sub": "sess1",
+		"veh": "veh1",
+		"exp": time.Now().Add(time.Hour).Unix(),
+	}).SignedString([]byte(testSecret))
+	require.NoError(t, err)
+
+	_, err = VerifyTeamToken(testSecret, tok)
+
+	require.ErrorIs(t, err, ErrInvalidToken)
+}
+
 func TestMintTeamToken_RejectsEmptySecret(t *testing.T) {
-	_, err := MintTeamToken("", "sess1", "veh1", time.Hour)
+	_, err := MintTeamToken("", testTeamClaims, time.Hour)
 
 	require.ErrorIs(t, err, ErrNoSigningSecret)
 }
 
 func TestVerifyTeamToken_WrongSecret(t *testing.T) {
-	tok, err := MintTeamToken(testSecret, "sess1", "veh1", time.Hour)
+	tok, err := MintTeamToken(testSecret, testTeamClaims, time.Hour)
 	require.NoError(t, err)
 
 	_, err = VerifyTeamToken("other-secret", tok)
@@ -55,7 +93,7 @@ func TestVerifyTeamToken_WrongSecret(t *testing.T) {
 }
 
 func TestVerifyTeamToken_Expired(t *testing.T) {
-	tok, err := MintTeamToken(testSecret, "sess1", "veh1", -time.Minute)
+	tok, err := MintTeamToken(testSecret, testTeamClaims, -time.Minute)
 	require.NoError(t, err)
 
 	_, err = VerifyTeamToken(testSecret, tok)
@@ -156,7 +194,7 @@ func TestDecodeOrganizer_RejectsExpired(t *testing.T) {
 }
 
 func TestDecodeOrganizer_RejectsTeamIssuer(t *testing.T) {
-	teamTok, err := MintTeamToken(testSecret, "sess1", "veh1", time.Hour)
+	teamTok, err := MintTeamToken(testSecret, testTeamClaims, time.Hour)
 	require.NoError(t, err)
 
 	_, err = DecodeOrganizer(teamTok)

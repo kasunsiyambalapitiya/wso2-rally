@@ -26,13 +26,33 @@ import (
 // auth middleware tell a crew token apart from an Asgardeo id token.
 const teamTokenIssuer = "rally-team"
 
-// vehicleClaim carries the vehicle a session is bound to.
-const vehicleClaim = "veh"
+// Claims a team token carries beyond the registered ones.
+const (
+	// vehicleClaim carries the vehicle whose session this is.
+	vehicleClaim = "veh"
+	// deviceClaim identifies which of the car's phones holds this token.
+	deviceClaim = "dev"
+	// crewClaim carries the member that phone belongs to.
+	crewClaim = "crw"
+)
+
+// TeamClaims is what a team token asserts about the phone holding it.
+//
+// The session alone is no longer enough to identify a caller: every phone in
+// the car shares one, so the device and the member behind it travel with it.
+// A struct rather than four positional strings, because two of them are
+// 32-char hex ids that would otherwise be trivial to transpose at a call site.
+type TeamClaims struct {
+	SessionID    string
+	VehicleID    string
+	DeviceID     string
+	CrewMemberID string
+}
 
 // MintTeamToken issues the JWT an in-car phone holds for the rest of the
-// rally. There is no participant login: binding a vehicle is what authenticates
+// rally. There is no participant login: joining a vehicle is what authenticates
 // the device, and this token is the proof.
-func MintTeamToken(secret, sessionID, vehicleID string, ttl time.Duration) (string, error) {
+func MintTeamToken(secret string, in TeamClaims, ttl time.Duration) (string, error) {
 	if secret == "" {
 		return "", ErrNoSigningSecret
 	}
@@ -40,8 +60,10 @@ func MintTeamToken(secret, sessionID, vehicleID string, ttl time.Duration) (stri
 	now := time.Now()
 	claims := jwt.MapClaims{
 		"iss":        teamTokenIssuer,
-		"sub":        sessionID,
-		vehicleClaim: vehicleID,
+		"sub":        in.SessionID,
+		vehicleClaim: in.VehicleID,
+		deviceClaim:  in.DeviceID,
+		crewClaim:    in.CrewMemberID,
 		"iat":        now.Unix(),
 		"exp":        now.Add(ttl).Unix(),
 	}
@@ -84,10 +106,20 @@ func VerifyTeamToken(secret, raw string) (Identity, error) {
 		return Identity{}, ErrInvalidToken
 	}
 
+	// A token without a device predates phones being distinguishable. Failing
+	// closed sends that phone back through join, which is cheap; accepting it
+	// would hand a handler a caller it cannot attribute anything to.
+	deviceID := stringClaim(claims, deviceClaim)
+	if deviceID == "" {
+		return Identity{}, ErrInvalidToken
+	}
+
 	return Identity{
-		Kind:      KindTeam,
-		SessionID: sessionID,
-		VehicleID: stringClaim(claims, vehicleClaim),
+		Kind:         KindTeam,
+		SessionID:    sessionID,
+		VehicleID:    stringClaim(claims, vehicleClaim),
+		DeviceID:     deviceID,
+		CrewMemberID: stringClaim(claims, crewClaim),
 	}, nil
 }
 
