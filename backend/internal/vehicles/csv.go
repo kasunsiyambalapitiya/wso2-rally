@@ -33,6 +33,15 @@ var csvHeader = []string{"code", "team_name", "vehicle_type", "contact_number", 
 // in a spreadsheet, where a comma would need quoting.
 const crewSeparator = "|"
 
+// crewPhoneSeparator splits one crew entry into name and phone number. A colon
+// cannot appear in either, unlike a comma (which the CSV owns) or a space
+// (which names contain).
+const crewPhoneSeparator = ":"
+
+// crewEntryShape is how the crew column is described back to an organizer whose
+// file was rejected.
+const crewEntryShape = `"Name:0771234567", separated by "|"`
+
 // utf8BOM is the byte-order mark Excel prepends when saving a UTF-8 CSV.
 const utf8BOM = "\ufeff"
 
@@ -43,7 +52,7 @@ type csvRow struct {
 	VehicleType   string
 	ContactNumber string
 	RouteName     string
-	CrewNames     []string
+	Crew          []CrewMemberInput
 }
 
 // parseCSV reads the provisioning file. The header row is required and its
@@ -81,14 +90,22 @@ func parseCSV(r io.Reader) ([]csvRow, error) {
 			VehicleType:   strings.TrimSpace(record[2]),
 			ContactNumber: strings.TrimSpace(record[3]),
 			RouteName:     strings.TrimSpace(record[4]),
-			CrewNames:     splitCrew(record[5]),
 		}
+		// Identity first: a row with no code is a more fundamental problem than
+		// a malformed crew entry, and reporting the crew instead would send an
+		// organizer looking in the wrong column.
 		if row.Code == "" {
 			return nil, apperr.Validationf("line %d has no vehicle code", line)
 		}
 		if row.TeamName == "" {
 			return nil, apperr.Validationf("line %d has no team name", line)
 		}
+
+		crew, err := splitCrew(record[5])
+		if err != nil {
+			return nil, fmt.Errorf("line %d: %w", line, err)
+		}
+		row.Crew = crew
 		rows = append(rows, row)
 	}
 
@@ -111,15 +128,44 @@ func checkHeader(header []string) error {
 	return nil
 }
 
-func splitCrew(field string) []string {
-	var names []string
-	for _, name := range strings.Split(field, crewSeparator) {
-		if trimmed := strings.TrimSpace(name); trimmed != "" {
-			names = append(names, trimmed)
-		}
+// splitCrew parses the crew_names column, whose entries are Name:phone.
+//
+// The phone is not optional. A member without one could never join their car, so
+// accepting a bare name here would import a roster that looks provisioned and
+// silently leaves someone unable to take part on rally morning. The line number
+// is the caller's to add.
+func splitCrew(field string) ([]CrewMemberInput, error) {
+	trimmedField := strings.TrimSpace(field)
+	if trimmedField == "" {
+		// A car with no crew listed yet is allowed; one with a nameless or
+		// numberless member is not.
+		return nil, nil
 	}
 
-	return names
+	var crew []CrewMemberInput
+	for entry := range strings.SplitSeq(trimmedField, crewSeparator) {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+
+		name, phone, found := strings.Cut(entry, crewPhoneSeparator)
+		if !found {
+			return nil, apperr.Validationf(
+				"crew entry %q needs a phone number, written %s", entry, crewEntryShape)
+		}
+		name, phone = strings.TrimSpace(name), strings.TrimSpace(phone)
+		if name == "" {
+			return nil, apperr.Validationf("crew entry %q has no name", entry)
+		}
+		if err := validatePhoneNumber(name, phone); err != nil {
+			return nil, err
+		}
+
+		crew = append(crew, CrewMemberInput{Name: name, PhoneNumber: phone})
+	}
+
+	return crew, nil
 }
 
 // writeCSV renders vehicles in the same shape parseCSV accepts, so an export
@@ -131,13 +177,13 @@ func writeCSV(w io.Writer, list []Vehicle, routeNames map[string]string) error {
 	}
 
 	for _, v := range list {
-		names := make([]string, 0, len(v.Crew))
+		entries := make([]string, 0, len(v.Crew))
 		for _, member := range v.Crew {
-			names = append(names, member.Name)
+			entries = append(entries, member.Name+crewPhoneSeparator+member.PhoneNumber)
 		}
 		record := []string{
 			v.Code, v.TeamName, v.VehicleType, v.ContactNumber,
-			routeNames[v.RouteID], strings.Join(names, crewSeparator),
+			routeNames[v.RouteID], strings.Join(entries, crewSeparator),
 		}
 		if err := writer.Write(record); err != nil {
 			return fmt.Errorf("write csv row for %s: %w", v.Code, err)

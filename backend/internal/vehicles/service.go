@@ -192,10 +192,12 @@ func (s *Service) ImportCSV(ctx context.Context, eventID string, r io.Reader) (i
 			ContactNumber: row.ContactNumber,
 			RouteID:       routeID,
 		}
-		for _, name := range row.CrewNames {
-			in.Crew = append(in.Crew, CrewMemberInput{Name: name, Role: RoleNode})
+		in.Crew = append(in.Crew, row.Crew...)
+		for i := range in.Crew {
+			in.Crew[i].Role = RoleNode
 		}
-		// The first crew member listed holds the phone.
+		// The first crew member listed is the expected navigator. Roster
+		// metadata only — every phone in the car has the same powers once joined.
 		if len(in.Crew) > 0 {
 			in.Crew[0].Role = RoleNavigator
 		}
@@ -267,6 +269,10 @@ func buildCrew(vehicleID string, inputs []CrewMemberInput) ([]CrewMember, error)
 		if name == "" {
 			return nil, apperr.Validationf("crew member name is required")
 		}
+		phone := strings.TrimSpace(in.PhoneNumber)
+		if err := validatePhoneNumber(name, phone); err != nil {
+			return nil, err
+		}
 		role := in.Role
 		if role == "" {
 			role = RoleNode
@@ -278,12 +284,35 @@ func buildCrew(vehicleID string, inputs []CrewMemberInput) ([]CrewMember, error)
 			ID:            store.NewID(),
 			VehicleID:     vehicleID,
 			Name:          name,
+			PhoneNumber:   phone,
 			Role:          role,
 			OriginCountry: strings.TrimSpace(in.OriginCountry),
 		})
 	}
 
 	return crew, nil
+}
+
+// validatePhoneNumber requires a number a member could actually join with.
+//
+// Only digits are counted, so any punctuation an organizer's spreadsheet
+// carries is fine — what is rejected is a number with too few digits to
+// identify its owner by its last four. The member's name is in the message
+// because a rejected CSV of 150 rows is useless without it.
+func validatePhoneNumber(name, phone string) error {
+	digits := 0
+	for _, r := range phone {
+		if r >= '0' && r <= '9' {
+			digits++
+		}
+	}
+	if digits < MinPhoneDigits {
+		return apperr.Validationf(
+			"crew member %q needs a phone number of at least %d digits — its last four are how they join",
+			name, MinPhoneDigits)
+	}
+
+	return nil
 }
 
 func validateVehicle(v Vehicle) error {

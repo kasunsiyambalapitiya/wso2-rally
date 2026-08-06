@@ -10,9 +10,14 @@
 ## 1. Overview
 
 A team-building car rally. Vehicles are "data packets", crews are "nodes", the goal is to route
-efficiently from a start line to an endpoint (Pearl Bay) in "system sync". Each vehicle carries
-**one active phone** running an in-car app that drives a zero-facilitator start, 15 modular tasks
-(GPS / sensor / puzzle based), live scoring, and a leaderboard projected at the finish.
+efficiently from a start line to an endpoint (Pearl Bay) in "system sync". **Every crew member runs
+the in-car app on their own phone, and the whole car scores as one unit** — a zero-facilitator start,
+15 modular tasks (GPS / sensor / puzzle based), live scoring, and a leaderboard projected at the finish.
+
+One member is the **navigator** at any moment: their phone sits in the cradle, drives turn-by-turn
+directions, and is the car's GPS — its position is what crosses a geofence. When it does, the unlocked
+task appears on **all** the crew's phones, and **whoever answers first answers for the vehicle**. Any
+member can take over navigation in one tap, so a dead battery or a driver swap costs nothing.
 
 We build three components, following the `customer-portal` tech stack, standards, and patterns —
 **except the backend is Go instead of Ballerina**:
@@ -21,18 +26,21 @@ We build three components, following the `customer-portal` tech stack, standards
 |---|---|---|
 | **Backend** | Game engine, data, REST + WebSocket | Go |
 | **Web App** | Organizer portal + pavilion leaderboard | React + Oxygen UI + Asgardeo |
-| **Micro App** | In-car participant PWA (one active phone) | React PWA + Web sensor APIs |
+| **Micro App** | In-car participant PWA (one phone per crew member) | React PWA + Web sensor APIs |
 
 ### Goals (this build)
 
-- **MVP prototype.** End-to-end happy path: vehicle/crew bind → geofenced start → 09:00 sync →
-  the 15 tasks → live scoring → leaderboard → arrival + vouchers.
+- **MVP prototype.** End-to-end happy path: the crew's phones join a vehicle → geofenced start →
+  09:00 sync → the 15 tasks, raced across the car's phones → live scoring → leaderboard → arrival +
+  vouchers.
 - Mirror customer-portal conventions so the code is familiar to the team and Choreo-deployable.
 
 ### Non-goals (explicitly out of scope for the MVP)
 
 - Offline resilience on weak mobile data (best-effort only).
 - Hardened anti-cheat / GPS-spoofing prevention (server validates submissions, but trusts client GPS).
+- Strong participant identity. Last-4-digit matching stops a mis-tap, not a determined impersonator;
+  anyone holding the roster could join as a teammate. Acceptable for a team-building rally.
 - Load-proven scale to 150 concurrent devices (design allows it; not load-tested).
 - Native mobile app, real BLE beacons, i18n, video transcoding, payment.
 
@@ -44,9 +52,13 @@ We build three components, following the `customer-portal` tech stack, standards
 |---|---|---|
 | Scope | MVP prototype | Happy-path first; hardening deferred |
 | Micro-app platform | React **PWA** + Web APIs | Geolocation, DeviceMotion, camera/barcode; installable |
-| Micro-app auth | **Vehicle ID + crew dropdown** | Device binds a team session, holds a backend-issued team token; no per-user login |
+| Micro-app auth | **Vehicle + your name + last 4 digits of your phone** | Every member joins the same session on their own phone; the roster is the user directory, so a light identity check replaces "no per-user login" |
+| Phones per vehicle | **One per crew member, all in one session** | The car is the scoring unit; the one-active-phone rule moves down a level to one active phone per *member* |
+| Navigator | **Runtime role, self-serve takeover** | Exactly one navigator per session (DB-enforced); their phone is the car's GPS, and any member can take it over in one tap |
+| Task racing | **First submission wins for the vehicle** | Resolved atomically in SQL; a latecomer gets `409` naming the winner rather than overwriting the score |
+| Turn-by-turn | **Deep link to the Google Maps app** | Real navigation with no API key; the PWA keeps `react-leaflet` + OSM for the in-app course view |
 | BLE (Task 8) | **QR / geofence checkpoint fallback** | Web Bluetooth is unsupported on iOS Safari |
-| Real-time | Backend **WebSocket** | Live monitor, leaderboard, 09:00 sync, cipher reveal, rest-lock |
+| Real-time | Backend **WebSocket** | Load-bearing, not decoration: the non-navigator phones learn about unlocks only over the socket |
 | Task engine | **Config-driven** task definitions | One task-type registry; one shared micro-app screen shell |
 | Vehicle problem state | New scope beyond proposal | `Vehicle.status` (ok / breakdown / device_issue) + organizer alert; surfaced on dashboard + live monitor |
 
@@ -55,7 +67,7 @@ We build three components, following the `customer-portal` tech stack, standards
 1. **Backend language** is Go, not Ballerina — we mirror the *modular structure* and *conventions*,
    not the language.
 2. **Micro app is a standalone PWA**, not embedded in the WSO2 Open Super App. There is no
-   `microapp-bridge` / `window.nativebridge`. Token comes from `POST /sessions/bind` instead of the
+   `microapp-bridge` / `window.nativebridge`. Token comes from `POST /sessions/join` instead of the
    native `getToken()`; sensors come from Web APIs instead of native bridges. Every other microapp
    convention (zustand, axios client, `HashRouter`, `.dto.ts`/`.model.ts` split, `services/` with
    TanStack `queryOptions`, build-time env, MUI + Oxygen) is retained.
@@ -74,20 +86,26 @@ We build three components, following the `customer-portal` tech stack, standards
                               │  REST  (Bearer id token + x-user-id-token)
                               │  WS    (monitor, leaderboard)
                  ┌────────────▼──────────────┐        ┌───────────────┐
-   In-car    ───▶│      Go Backend           │───────▶│     MySQL     │
-   phone (PWA)   │  chi REST :8080           │        └───────────────┘
-                 │  WebSocket hub /ws        │
+  navigator  ───▶│      Go Backend           │───────▶│     MySQL     │
+  phone (PWA)    │  chi REST :8080           │        └───────────────┘
+  location+motion│  WebSocket hub /ws        │
                  │  task-engine · scoring    │        ┌───────────────┐
                  │  geofence · realtime      │───────▶│ Object store  │ (debrief videos)
                  └───────────────────────────┘        └───────────────┘
                               ▲  REST  (Bearer team token)
-                              │  WS    (start signal, cipher, rest-lock)
-   In-car phone (PWA) ────────┘
+                              │  WS    (task_unlocked, task_completed,
+                              │         navigator_changed, start signal,
+                              │         cipher, rest-lock)
+  task phones ×3 ─────────────┘   one vehicle · one session · one score
 ```
 
 - **Two identities, one backend.** Organizer tokens are Asgardeo id tokens (validated via JWKS on
-  Choreo). Team tokens are backend-issued JWTs minted at `POST /sessions/bind`. Auth middleware
+  Choreo). Team tokens are backend-issued JWTs minted at `POST /sessions/join`. Auth middleware
   routes by issuer.
+- **One session, many devices.** All of a vehicle's phones share a single `team_session`; the first
+  member to join creates it and the rest find it. Only the navigator's phone reports location, so the
+  car has exactly one authoritative position. Every other phone is a task terminal, kept in step by
+  the WebSocket.
 - **Frontends only talk HTTP/WS.** No shared code across the three components (same as customer-portal).
 - **Choreo deployment.** The gateway handles TLS, CORS, and Asgardeo token validation for organizer
   routes; app-level CORS is dev-only. A `.choreo/component.yaml` declares the REST + WS endpoints.
@@ -154,11 +172,22 @@ Entities (MySQL tables; all ids are 32-char lowercase hex `CHAR(32)` to match cu
   parameters (cipher options, arithmetic operands, barcode payload, radius, timer seconds, gate spec, …).
 - **vehicle** — `id, event_id, code(PKT-001), team_name, vehicle_type(SUV|Sedan|Van|…), contact_number,
   route_id, status(ok|breakdown|device_issue)`.
-- **crew_member** (node) — `id, vehicle_id, name, role(navigator|node), origin_country`.
+- **crew_member** (node) — `id, vehicle_id, name, phone_number, role(navigator|node), origin_country`.
+  `phone_number` is **NOT NULL**: its last four digits are what a member types to prove who they are,
+  so a member without one could never join. `role` is roster metadata (who is expected to drive); the
+  *active* navigator lives on `session_device`.
 - **team_session** — `id, event_id, vehicle_id, bound_at, started_at, finished_at,
-  current_waypoint_id, total_score, status(bound|active|finished)`. One active session per vehicle.
+  current_waypoint_id, total_score, status(bound|active|finished)`. One live session per vehicle,
+  enforced by a unique index — which is what guarantees the whole crew lands in the **same** run.
+- **session_device** — `id, session_id, crew_member_id, is_navigator, joined_at, last_seen_at`.
+  One row per phone in the car. Two unique indexes carry the rules: `(session_id, crew_member_id)`
+  gives one active phone per member, and `(session_id, navigator_flag)` — a generated column that is
+  `1` for the navigator and `NULL` otherwise — lets MySQL guarantee **exactly one navigator** rather
+  than trusting application code to keep count. Re-joining is an upsert, so a rebooted or borrowed
+  phone just works.
 - **task_submission** — `id, session_id, task_id, waypoint_id, status(pending|completed|skipped),
-  payload(JSON), awarded_points, submitted_at`. Unique on `(session_id, task_id)`.
+  payload(JSON), awarded_points, crew_member_id, submitted_at`. Unique on `(session_id, task_id)` —
+  the submission belongs to the *vehicle*, and `crew_member_id` records which member won the race.
 - **vehicle_alert** — `id, vehicle_id, type(breakdown|device_issue|other), note, source(organizer|crew),
   raised_by, lat, lng, raised_at, resolved_at`. Raised by an organizer (A5/A6) or by the crew from the micro app (B10).
 - **debrief_video** — `id, event_id, vehicle_id, day, object_key, uploaded_at`.
@@ -195,13 +224,38 @@ micro app has one screen shell that renders the body by type. Adding/retuning a 
 | 14 | Geofence Trivia | `TIMED_TRIVIA` | geofence | Geolocation | answer before 30 s |
 | 15 | Sequence Gate Match | `GATE_MATCH` | geofence | — | correct connector order |
 
-**Triggering.** The micro app streams location (`POST /sessions/me/location`). The backend evaluates
-waypoint geofences server-side (`geo` package) and returns which tasks are now unlocked, plus rest-lock /
-precision-radius / timed-trivia events. Sensor and manual tasks unlock in the task body.
+**Triggering.** The **navigator's** phone streams location (`POST /sessions/me/location`); no other
+phone may. The backend evaluates waypoint geofences server-side (`geo` package) and returns which tasks
+are now unlocked, plus rest-lock / precision-radius / timed-trivia events. The same unlock fans out as
+`task_unlocked` over the session's WebSocket topic, which is how the other phones — who never ping —
+find out there is something to answer. Sensor and manual tasks unlock in the task body.
+
+**Who may answer what.** The driver is driving, so their phone is a sensor, not an input device:
+
+| Restriction | Types | Why |
+|---|---|---|
+| **Navigator's phone only** | `TELEMATICS`, `GEOFENCE_CROSS`, `PROXIMITY` | Read passively while the phone sits in the cradle. A passenger's pocket accelerometer would score the *car's* driving quality, and a second GPS would give the car two positions. |
+| **Any phone in the car** | everything else, including `SCAN_BARCODE` | Needs hands and attention. The driver keeps both on the road. |
+
+`GET /sessions/me/tasks` returns `navigatorOnly` per task so a phone can grey out what it may not touch,
+and a wrong-phone submission is a `403` rather than a silently ignored score.
 
 **Validation & scoring are server-side.** `POST /sessions/me/tasks/{taskId}/submit` sends the type's
-payload; the backend validates against `task.config`, writes `task_submission`, awards points, updates
-`team_session.total_score`, and broadcasts a score/leaderboard delta over WebSocket.
+payload; the backend validates against `task.config`, awards points, updates `team_session.total_score`,
+and broadcasts a score/leaderboard delta over WebSocket.
+
+**First submission wins for the vehicle.** Four phones can answer the same task at once, so the winner
+is settled in one atomic statement rather than a read-then-write:
+
+```sql
+UPDATE task_submission SET status='completed', crew_member_id=?, awarded_points=?, submitted_at=NOW()
+ WHERE session_id=? AND task_id=? AND status='pending'
+```
+
+Zero affected rows means someone else already won: the latecomer gets `409` naming the winner, and the
+score is untouched. This replaces the old single-phone rule that a resubmission *corrected* the total —
+with a race in play, letting the second answer overwrite the first would be a scoring bug. Every phone
+also receives `task_completed` carrying `completedBy`, so the task closes on all four screens at once.
 
 ---
 
@@ -223,11 +277,20 @@ REST style mirrors customer-portal: resource paths, `POST /…/search` for lists
 - Read-through for run views: `GET /events/{id}/monitor` (snapshot) · `GET /events/{id}/leaderboard`
 
 **Participant (team token):**
-- `POST /sessions/bind` — `{ vehicleId, crew:[...] }` → `{ teamToken, session }` (zero-facilitator start)
-- `GET /sessions/me` — session state, assigned route, cipher (after 09:00), next waypoint
-- `POST /sessions/me/location` — `{ lat, lng, accuracy, ts }` → `{ unlockedTasks, events:[geofence|rest|trivia|arrival] }`
-- `GET /sessions/me/tasks` — task list + statuses · `GET /tasks/{id}` — definition to render
-- `POST /sessions/me/tasks/{taskId}/submit` — type payload → validated + scored result
+- `POST /sessions/join` — `{ vehicleId, crewMemberId, phoneLast4 }` → `{ teamToken, session, device, crew }`.
+  The only unauthenticated write. The first member to call it creates the session and becomes navigator;
+  the rest join that same session. Named *join*, not *bind*, because it is no longer exclusive — "bind"
+  carried the one-phone-per-vehicle rule that this design deliberately removes.
+- `GET /sessions/me` — session state, assigned route, cipher (after 09:00), next waypoint, the full
+  `crew` with who is navigating, and `you` (your own device + crew member)
+- `POST /sessions/me/location` — **navigator only, else `403`** — `{ lat, lng, accuracy, ts }` →
+  `{ unlockedTasks, events:[geofence|rest|trivia|arrival] }`
+- `POST /sessions/me/navigator` — take over navigation from whoever holds it → `{ crew }`, and
+  broadcasts `navigator_changed`
+- `GET /sessions/me/tasks` — task list + statuses, each with `navigatorOnly` and `completedBy` ·
+  `GET /tasks/{id}` — definition to render
+- `POST /sessions/me/tasks/{taskId}/submit` — type payload → validated + scored result.
+  `403` if the task is navigator-only and you are not; `409` naming the winner if the car already answered it.
 - `POST /sessions/me/alerts` — `{ type(breakdown|device_issue|other), note?, lat, lng }` → raises a vehicle alert (B10)
   and broadcasts `alert` to organizers (drives A1 ⚠ Alerts + A6 monitor)
 - `POST /sessions/me/finish` — (also auto on arrival geofence) → locks score, issues vouchers
@@ -236,8 +299,10 @@ REST style mirrors customer-portal: resource paths, `POST /…/search` for lists
 **WebSocket `/ws`:**
 - Organizer subscribes `event:{id}` → receives `vehicle_position`, `task_completed`, `score_delta`,
   `leaderboard`, `alert` messages.
-- Micro app subscribes `session:{id}` → receives `start_signal` (09:00 sync), `cipher_reveal`,
-  `rest_lock`, `arrival`.
+- Every phone in a car subscribes `session:{id}` → receives `task_unlocked` (the navigator crossed a
+  geofence — this is the *only* way a non-navigator phone learns of it), `task_completed` with
+  `completedBy` (close the task, a teammate got there first), `navigator_changed`, `score_delta`,
+  `start_signal` (09:00 sync), `cipher_reveal`, `rest_lock`, `arrival`.
 - Contract lives in `api/asyncapi.yaml`; port/path declared in `.choreo/component.yaml`.
 
 ---
@@ -248,12 +313,20 @@ REST style mirrors customer-portal: resource paths, `POST /…/search` for lists
   sends `Authorization: Bearer <idToken>` + `x-user-id-token`. Backend middleware validates via JWKS when
   `TOKEN_VALIDATOR_ENABLED` (Choreo), else decode-only (local). Claims → `UserInfo{Email,UserID,Groups}`
   in `context.Context`. `CheckRoles(required, groups)` gates organizer/admin actions. Group→role config from env.
-- **Participant.** No Asgardeo. `POST /sessions/bind` verifies the vehicle exists and is unbound, then mints
-  a signed team JWT (`iss=rally-team`, `sub=sessionId`, `vehicleId`) stored in the micro app's localStorage
-  and sent as `Authorization: Bearer <teamToken>`. Team middleware validates signature + session status.
+- **Participant.** No Asgardeo. `POST /sessions/join` verifies the event is published, the crew member
+  belongs to the vehicle, and the last four digits of the phone number on their roster row match what
+  they typed. It then finds-or-creates the vehicle's session, upserts a `session_device` row, and mints a
+  signed team JWT (`iss=rally-team`, `sub=sessionId`, plus `deviceId` and `crewMemberId`) stored in the
+  micro app's localStorage and sent as `Authorization: Bearer <teamToken>`. Team middleware validates
+  signature + session status and resolves the device, so a handler can tell *which* phone is calling.
   Distinguished from organizer tokens by `iss`.
-- **One active phone.** A vehicle has at most one `active`/`bound` session; a second bind is rejected (or
-  supersedes with an organizer override) — enforces the one-active-phone policy.
+- **One active phone per member, not per vehicle.** The old rule stopped a second phone from binding a
+  vehicle. It now applies one level down: `session_device` is unique on `(session_id, crew_member_id)`,
+  so Nimal cannot hold two phones, while all four of the crew can hold one each. Racing between a car's
+  own phones is the intended behaviour, not a conflict to reject.
+- **Exactly one navigator**, enforced by a unique index on a generated column rather than by counting in
+  Go. `POST /sessions/me/navigator` moves the role in one transaction: demote the incumbent, promote the
+  caller. Any member may take over — a navigator whose battery just died cannot hand anything over.
 
 ---
 
@@ -261,14 +334,20 @@ REST style mirrors customer-portal: resource paths, `POST /…/search` for lists
 
 - **Geolocation** (`navigator.geolocation.watchPosition`) drives start-grid validation (B2), precision radius
   (Task 5), rest lock (Task 12), geofence trivia (Task 14), and arrival auto-logoff (B9). Backend does the
-  point-in-radius math (`geo` package) from reported coords.
-- **DeviceMotion** for eco-driving telematics (Task 4). iOS requires `DeviceMotionEvent.requestPermission()`
-  on a user gesture — requested at task start.
+  point-in-radius math (`geo` package) from reported coords. **Only the navigator's phone runs the watch**;
+  the others leave the GPS alone, which also spares three batteries.
+- **DeviceMotion** for eco-driving telematics (Task 4), again navigator-only — it is measuring the car, not
+  a passenger. iOS requires `DeviceMotionEvent.requestPermission()` on a user gesture, so it is requested
+  when a phone takes over navigation rather than at task start.
 - **Camera** via `getUserMedia` + `BarcodeDetector` (Chrome/Android). iOS Safari lacks `BarcodeDetector` →
   fall back to `@zxing/browser`, and manual code entry is always available (wireframe B5).
 - **BLE (Task 8)** → QR checkpoint (scan a QR placed at the beacon location) or a geofence checkpoint.
 - **Maps** — `react-leaflet` + OpenStreetMap tiles (no API key), for organizer route editing/monitor and the
   micro-app route view.
+- **Turn-by-turn** — the navigator's B4 screen carries a *Navigate with Google Maps* button that deep-links
+  to the installed app: `https://www.google.com/maps/dir/?api=1&destination=<lat>,<lng>&travelmode=driving`.
+  Real voice navigation with no API key, no billing, and no new dependency; the leaflet map stays for course
+  context (geofence circles, waypoint order) that Google Maps cannot show.
 - **PWA** — `vite-plugin-pwa` adds a manifest + service worker for install + basic asset caching. Screen wake
   lock (`navigator.wakeLock`) keeps the in-car screen on.
 

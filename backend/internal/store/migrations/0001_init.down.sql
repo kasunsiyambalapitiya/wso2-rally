@@ -8,6 +8,8 @@ DROP TABLE IF EXISTS debrief_video;
 DROP TABLE IF EXISTS voucher;
 DROP TABLE IF EXISTS vehicle_alert;
 DROP TABLE IF EXISTS task_submission;
+DROP TABLE IF EXISTS session_waypoint_visit;
+DROP TABLE IF EXISTS session_device;
 DROP TABLE IF EXISTS team_session;
 DROP TABLE IF EXISTS crew_member;
 DROP TABLE IF EXISTS vehicle;

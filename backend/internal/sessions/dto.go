@@ -64,18 +64,46 @@ type SessionStateDTO struct {
 	FinishCircle   CircleDTO     `json:"finishCircle"`
 	Waypoints      []WaypointDTO `json:"waypoints"`
 	NextWaypointID string        `json:"nextWaypointId"`
+	// Crew is every phone in the car; You is the calling one.
+	Crew []DeviceDTO `json:"crew"`
+	You  DeviceDTO   `json:"you"`
+	// SharingCount is how many phones are currently reporting position. The app
+	// warns its owner when this is 1 and it is them, before they pocket the
+	// phone the whole car is relying on.
+	SharingCount int `json:"sharingCount"`
 }
 
-// BindRequest is the POST /sessions/bind body.
-type BindRequest struct {
-	VehicleID     string   `json:"vehicleId"`
-	CrewMemberIDs []string `json:"crewMemberIds"`
+// JoinRequest is the POST /sessions/join body.
+type JoinRequest struct {
+	VehicleID    string `json:"vehicleId"`
+	CrewMemberID string `json:"crewMemberId"`
+	PhoneLast4   string `json:"phoneLast4"`
 }
 
-// BindResponse hands the phone its credential for the rest of the rally.
-type BindResponse struct {
+// DeviceDTO is one phone in the car.
+//
+// It carries no phone number. The roster's numbers exist so organizers can call
+// a crew and so a member can prove who they are; neither needs them on a phone,
+// and a crew list that shipped them would hand every teammate's number to
+// anyone who joined the car.
+type DeviceDTO struct {
+	ID             string  `json:"id"`
+	CrewMemberID   string  `json:"crewMemberId"`
+	CrewMemberName string  `json:"crewMemberName"`
+	JoinedAt       string  `json:"joinedAt"`
+	LastSeenAt     *string `json:"lastSeenAt"`
+	// Sharing is whether this phone is currently reporting the car's position.
+	// Computed server-side so every phone in the car agrees on the answer.
+	Sharing bool `json:"sharing"`
+}
+
+// JoinResponse hands the phone its credential for the rest of the rally.
+type JoinResponse struct {
 	TeamToken string     `json:"teamToken"`
 	Session   SessionDTO `json:"session"`
+	// Device is this phone; Crew is every phone in the car, including this one.
+	Device DeviceDTO   `json:"device"`
+	Crew   []DeviceDTO `json:"crew"`
 }
 
 // LocationRequest is the POST /sessions/me/location body.
@@ -110,6 +138,9 @@ type TaskStateDTO struct {
 	Points     int    `json:"points"`
 	Status     string `json:"status"`
 	Awarded    int    `json:"awardedPoints"`
+	// CompletedBy names the teammate who answered this first, so every phone can
+	// close the task showing who got there. Empty while it is unanswered.
+	CompletedBy string `json:"completedBy"`
 }
 
 // CrewAlertRequest is the POST /sessions/me/alerts body.
@@ -172,7 +203,42 @@ func toWaypointDTOs(list []WaypointGeo) []WaypointDTO {
 	return out
 }
 
-func toStateDTO(state SessionState) SessionStateDTO {
+// toDeviceDTO resolves Sharing against now, so every phone reading the same
+// response sees the same answer rather than each judging staleness itself.
+func toDeviceDTO(device Device, now time.Time) DeviceDTO {
+	return DeviceDTO{
+		ID:             device.ID,
+		CrewMemberID:   device.CrewMemberID,
+		CrewMemberName: device.CrewMemberName,
+		JoinedAt:       device.JoinedAt.UTC().Format(time.RFC3339),
+		LastSeenAt:     formatTime(device.LastSeenAt),
+		Sharing:        device.IsSharing(now),
+	}
+}
+
+func toDeviceDTOs(devices []Device, now time.Time) []DeviceDTO {
+	out := make([]DeviceDTO, 0, len(devices))
+	for _, device := range devices {
+		out = append(out, toDeviceDTO(device, now))
+	}
+
+	return out
+}
+
+func sharingCount(devices []DeviceDTO) int {
+	count := 0
+	for _, device := range devices {
+		if device.Sharing {
+			count++
+		}
+	}
+
+	return count
+}
+
+func toStateDTO(state SessionState, now time.Time) SessionStateDTO {
+	crew := toDeviceDTOs(state.Crew, now)
+
 	return SessionStateDTO{
 		Session:        toSessionDTO(state.Session),
 		VehicleCode:    state.VehicleCode,
@@ -184,6 +250,18 @@ func toStateDTO(state SessionState) SessionStateDTO {
 		FinishCircle:   toCircleDTO(state.FinishCircle),
 		Waypoints:      toWaypointDTOs(state.Waypoints),
 		NextWaypointID: state.NextWaypointID,
+		Crew:           crew,
+		You:            toDeviceDTO(state.You, now),
+		SharingCount:   sharingCount(crew),
+	}
+}
+
+func toJoinResponse(result JoinResult, now time.Time) JoinResponse {
+	return JoinResponse{
+		TeamToken: result.Token,
+		Session:   toSessionDTO(result.Session),
+		Device:    toDeviceDTO(result.Device, now),
+		Crew:      toDeviceDTOs(result.Crew, now),
 	}
 }
 
@@ -213,14 +291,15 @@ func toTaskStateDTOs(list []TaskState) []TaskStateDTO {
 	out := make([]TaskStateDTO, 0, len(list))
 	for _, state := range list {
 		out = append(out, TaskStateDTO{
-			TaskID:     state.TaskID,
-			WaypointID: state.WaypointID,
-			Code:       state.Code,
-			Title:      state.Title,
-			Type:       state.Type,
-			Points:     state.Points,
-			Status:     state.Status,
-			Awarded:    state.Awarded,
+			CompletedBy: state.CompletedBy,
+			TaskID:      state.TaskID,
+			WaypointID:  state.WaypointID,
+			Code:        state.Code,
+			Title:       state.Title,
+			Type:        state.Type,
+			Points:      state.Points,
+			Status:      state.Status,
+			Awarded:     state.Awarded,
 		})
 	}
 

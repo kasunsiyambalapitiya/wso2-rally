@@ -63,6 +63,64 @@ func TestIsDuplicateKey(t *testing.T) {
 	}
 }
 
+func TestIsDuplicateKeyOn(t *testing.T) {
+	// The real message MySQL 8 produces, which is the only thing that lets a
+	// caller tell which index it collided with.
+	const submissionClash = "Duplicate entry 'sess-abc-task-1' for key " +
+		"'task_submission.uq_submission_session_task'"
+	const deviceClash = "Duplicate entry 'sess-abc-crew-1' for key " +
+		"'session_device.uq_device_per_member'"
+
+	tests := []struct {
+		name  string
+		err   error
+		index string
+		want  bool
+	}{
+		{
+			name:  "the index we asked about",
+			err:   &mysql.MySQLError{Number: duplicateEntryErrNo, Message: submissionClash},
+			index: "uq_submission_session_task",
+			want:  true,
+		},
+		{
+			name:  "wrapped",
+			err:   fmt.Errorf("claim task: %w", &mysql.MySQLError{Number: duplicateEntryErrNo, Message: submissionClash}),
+			index: "uq_submission_session_task",
+			want:  true,
+		},
+		{
+			// The distinction that matters: a duplicate on a different index
+			// must not be read as "another phone already won this task".
+			name:  "a duplicate on a different index",
+			err:   &mysql.MySQLError{Number: duplicateEntryErrNo, Message: deviceClash},
+			index: "uq_submission_session_task",
+			want:  false,
+		},
+		{
+			// A PRIMARY KEY collision from store.NewID() is a different bug and
+			// must not be mistaken for a lost race.
+			name:  "primary key collision",
+			err:   &mysql.MySQLError{Number: duplicateEntryErrNo, Message: "Duplicate entry 'abc' for key 'task_submission.PRIMARY'"},
+			index: "uq_submission_session_task",
+			want:  false,
+		},
+		{
+			name:  "not a duplicate-key error at all",
+			err:   &mysql.MySQLError{Number: 1045, Message: submissionClash},
+			index: "uq_submission_session_task",
+			want:  false,
+		},
+		{"unrelated error", errors.New("boom"), "uq_submission_session_task", false},
+		{"nil", nil, "uq_submission_session_task", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, IsDuplicateKeyOn(tt.err, tt.index))
+		})
+	}
+}
+
 func TestOpen_RejectsInvalidDSN(t *testing.T) {
 	_, err := Open("not-a-dsn")
 

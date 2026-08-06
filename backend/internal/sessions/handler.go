@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -39,15 +40,16 @@ func NewHandler(service *Service, logger *slog.Logger) *Handler {
 	return &Handler{service: service, logger: logger}
 }
 
-// RegisterPublic adds the one endpoint that runs before a crew has any
-// credential: binding is what issues the team token.
+// RegisterPublic adds the endpoints that run before a phone has any credential:
+// joining is what issues the team token, and a phone needs the vehicle and crew
+// lists to fill in the join form.
 func (h *Handler) RegisterPublic(r chi.Router) {
-	r.Post("/sessions/bind", h.bind)
+	r.Post("/sessions/join", h.join)
 }
 
-// RegisterTeam adds the endpoints a bound phone calls. Every one of them takes
-// its session from the team token, never from the request, so a crew can only
-// ever act as itself.
+// RegisterTeam adds the endpoints a joined phone calls. Every one of them takes
+// its session and device from the team token, never from the request, so a phone
+// can only ever act as itself.
 func (h *Handler) RegisterTeam(r chi.Router) {
 	r.Get("/sessions/me", h.state)
 	r.Post("/sessions/me/location", h.ping)
@@ -58,45 +60,43 @@ func (h *Handler) RegisterTeam(r chi.Router) {
 	r.Get("/sessions/me/vouchers", h.vouchers)
 }
 
-func (h *Handler) bind(w http.ResponseWriter, r *http.Request) {
-	var req BindRequest
+func (h *Handler) join(w http.ResponseWriter, r *http.Request) {
+	var req JoinRequest
 	if err := httpx.DecodeJSON(r, &req); err != nil {
 		httpx.WriteBadRequest(w, err)
 		return
 	}
 
-	session, token, err := h.service.Bind(r.Context(), BindInput{
-		VehicleID:     req.VehicleID,
-		CrewMemberIDs: req.CrewMemberIDs,
+	result, err := h.service.Join(r.Context(), JoinInput{
+		VehicleID:    req.VehicleID,
+		CrewMemberID: req.CrewMemberID,
+		PhoneLast4:   req.PhoneLast4,
 	})
 	if err != nil {
 		httpx.WriteDomainError(w, r, h.logger, err)
 		return
 	}
 
-	httpx.WriteJSON(w, http.StatusCreated, BindResponse{
-		TeamToken: token,
-		Session:   toSessionDTO(session),
-	})
+	httpx.WriteJSON(w, http.StatusCreated, toJoinResponse(result, time.Now().UTC()))
 }
 
 func (h *Handler) state(w http.ResponseWriter, r *http.Request) {
-	sessionID, ok := sessionIDFrom(w, r)
+	caller, ok := callerFrom(w, r)
 	if !ok {
 		return
 	}
 
-	state, err := h.service.State(r.Context(), sessionID)
+	state, err := h.service.State(r.Context(), caller.sessionID, caller.deviceID)
 	if err != nil {
 		httpx.WriteDomainError(w, r, h.logger, err)
 		return
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, toStateDTO(state))
+	httpx.WriteJSON(w, http.StatusOK, toStateDTO(state, time.Now().UTC()))
 }
 
 func (h *Handler) ping(w http.ResponseWriter, r *http.Request) {
-	sessionID, ok := sessionIDFrom(w, r)
+	caller, ok := callerFrom(w, r)
 	if !ok {
 		return
 	}
@@ -109,7 +109,8 @@ func (h *Handler) ping(w http.ResponseWriter, r *http.Request) {
 
 	// Accuracy is accepted so the client need not special-case it, but nothing
 	// is decided from it yet: a geofence call is made from the reported point.
-	result, err := h.service.Ping(r.Context(), sessionID, LatLng{Lat: req.Lat, Lng: req.Lng})
+	result, err := h.service.Ping(r.Context(), caller.sessionID, caller.deviceID,
+		LatLng{Lat: req.Lat, Lng: req.Lng})
 	if err != nil {
 		httpx.WriteDomainError(w, r, h.logger, err)
 		return
@@ -119,12 +120,12 @@ func (h *Handler) ping(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) listTasks(w http.ResponseWriter, r *http.Request) {
-	sessionID, ok := sessionIDFrom(w, r)
+	caller, ok := callerFrom(w, r)
 	if !ok {
 		return
 	}
 
-	states, err := h.service.ListTasks(r.Context(), sessionID)
+	states, err := h.service.ListTasks(r.Context(), caller.sessionID)
 	if err != nil {
 		httpx.WriteDomainError(w, r, h.logger, err)
 		return
@@ -136,7 +137,7 @@ func (h *Handler) listTasks(w http.ResponseWriter, r *http.Request) {
 // submitTask scores one attempt. The payload shape is per task type, so it is
 // passed through to the engine untouched.
 func (h *Handler) submitTask(w http.ResponseWriter, r *http.Request) {
-	sessionID, ok := sessionIDFrom(w, r)
+	caller, ok := callerFrom(w, r)
 	if !ok {
 		return
 	}
@@ -147,7 +148,8 @@ func (h *Handler) submitTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.service.SubmitTask(r.Context(), sessionID, chi.URLParam(r, "taskId"), payload)
+	result, err := h.service.SubmitTask(r.Context(), caller.sessionID, caller.crewMemberID,
+		chi.URLParam(r, "taskId"), payload)
 	if err != nil {
 		httpx.WriteDomainError(w, r, h.logger, err)
 		return
@@ -161,7 +163,7 @@ func (h *Handler) submitTask(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) raiseAlert(w http.ResponseWriter, r *http.Request) {
-	sessionID, ok := sessionIDFrom(w, r)
+	caller, ok := callerFrom(w, r)
 	if !ok {
 		return
 	}
@@ -172,7 +174,7 @@ func (h *Handler) raiseAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	raised, err := h.service.RaiseCrewAlert(r.Context(), sessionID, CrewAlertInput{
+	raised, err := h.service.RaiseCrewAlert(r.Context(), caller.sessionID, CrewAlertInput{
 		Type: req.Type,
 		Note: req.Note,
 		Lat:  req.Lat,
@@ -187,12 +189,12 @@ func (h *Handler) raiseAlert(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) finish(w http.ResponseWriter, r *http.Request) {
-	sessionID, ok := sessionIDFrom(w, r)
+	caller, ok := callerFrom(w, r)
 	if !ok {
 		return
 	}
 
-	session, err := h.service.Finish(r.Context(), sessionID)
+	session, err := h.service.Finish(r.Context(), caller.sessionID)
 	if err != nil {
 		httpx.WriteDomainError(w, r, h.logger, err)
 		return
@@ -202,12 +204,12 @@ func (h *Handler) finish(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) vouchers(w http.ResponseWriter, r *http.Request) {
-	sessionID, ok := sessionIDFrom(w, r)
+	caller, ok := callerFrom(w, r)
 	if !ok {
 		return
 	}
 
-	voucher, err := h.service.Vouchers(r.Context(), sessionID)
+	voucher, err := h.service.Vouchers(r.Context(), caller.sessionID)
 	if err != nil {
 		httpx.WriteDomainError(w, r, h.logger, err)
 		return
@@ -216,14 +218,33 @@ func (h *Handler) vouchers(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, toVoucherDTO(voucher))
 }
 
-// sessionIDFrom reads the caller's session from its team token. It writes the
-// 401 itself and reports false, so handlers can return immediately.
-func sessionIDFrom(w http.ResponseWriter, r *http.Request) (string, bool) {
+// caller is which phone is on the line.
+//
+// The session says which car; the device and member say which of its phones, and
+// that distinction is what lets the backend record who answered a task and tell
+// a crew who is still sharing location.
+type caller struct {
+	sessionID    string
+	deviceID     string
+	crewMemberID string
+}
+
+// callerFrom reads the calling phone out of its team token. It writes the 401
+// itself and reports false, so handlers can return immediately.
+//
+// A token missing the device is rejected rather than tolerated: it was minted
+// before phones were distinguishable, and guessing which phone it meant would be
+// worse than making it join again.
+func callerFrom(w http.ResponseWriter, r *http.Request) (caller, bool) {
 	identity, ok := authz.IdentityFrom(r.Context())
-	if !ok || !identity.IsTeam() || identity.SessionID == "" {
+	if !ok || !identity.IsTeam() || identity.SessionID == "" || identity.DeviceID == "" {
 		httpx.WriteUnauthorized(w)
-		return "", false
+		return caller{}, false
 	}
 
-	return identity.SessionID, true
+	return caller{
+		sessionID:    identity.SessionID,
+		deviceID:     identity.DeviceID,
+		crewMemberID: identity.CrewMemberID,
+	}, true
 }

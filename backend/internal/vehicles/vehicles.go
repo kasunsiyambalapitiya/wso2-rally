@@ -72,9 +72,13 @@ func (r CrewRole) IsValid() bool { return slices.Contains(allRoles, r) }
 
 // CrewMember is one person in a vehicle.
 type CrewMember struct {
-	ID            string
-	VehicleID     string
-	Name          string
+	ID        string
+	VehicleID string
+	Name      string
+	// PhoneNumber is required. Its last four digits are what this member types
+	// to join their car, so a blank one would leave them unable to take part —
+	// and organizers call it when a car goes quiet.
+	PhoneNumber   string
 	Role          CrewRole
 	OriginCountry string
 }
@@ -108,9 +112,19 @@ type CreateVehicleInput struct {
 // CrewMemberInput is one crew member on a create or update request.
 type CrewMemberInput struct {
 	Name          string
+	PhoneNumber   string
 	Role          CrewRole
 	OriginCountry string
 }
+
+// MinPhoneDigits is the fewest digits a crew phone number may carry.
+//
+// The join check compares the last four, so anything shorter could not identify
+// its owner. Four is the floor rather than a full Sri Lankan number length
+// because organizers paste numbers in whatever shape their spreadsheet holds,
+// and rejecting a valid number on formatting grounds would be worse than
+// accepting a short one.
+const MinPhoneDigits = 4
 
 // UpdateVehicleInput is a PATCH: nil fields are left untouched. A non-nil Crew
 // replaces the whole crew list.

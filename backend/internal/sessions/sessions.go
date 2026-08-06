@@ -34,18 +34,37 @@ import (
 var (
 	// ErrNotFound means no session exists with the requested id.
 	ErrNotFound = fmt.Errorf("%w: session", apperr.ErrNotFound)
-	// ErrVehicleNotFound means the vehicle being bound does not exist.
+	// ErrVehicleNotFound means the vehicle being joined does not exist.
 	ErrVehicleNotFound = fmt.Errorf("%w: vehicle", apperr.ErrNotFound)
-	// ErrAlreadyBound is the one-active-phone rule: this vehicle already has a
-	// live session on another device.
-	ErrAlreadyBound = fmt.Errorf("%w: this vehicle is already bound to another phone", apperr.ErrConflict)
+	// ErrAlreadyBound means this vehicle already has a live session.
+	//
+	// It is no longer returned to a caller. Joining races every other phone in
+	// the car to create the one session they will share, and the loser of that
+	// race wants the winner's session — so Join catches this and re-reads rather
+	// than reporting a conflict.
+	ErrAlreadyBound = fmt.Errorf("%w: this vehicle already has a live session", apperr.ErrConflict)
 	// ErrEventNotActive means the event has not been published, so crews
-	// cannot bind to it yet.
+	// cannot join it yet.
 	ErrEventNotActive = fmt.Errorf("%w: this event is not open for crews yet", apperr.ErrConflict)
+	// ErrCrewMemberNotOnVehicle means the chosen member is not on this
+	// vehicle's roster.
+	ErrCrewMemberNotOnVehicle = fmt.Errorf("%w: that crew member is not in this vehicle", apperr.ErrNotFound)
+	// ErrPhoneMismatch means the last four digits did not match the roster.
+	//
+	// Deliberately vague about which part was wrong, and never echoes the
+	// number on file.
+	ErrPhoneMismatch = fmt.Errorf("%w: those last four digits do not match our roster for that name", apperr.ErrForbidden)
+	// ErrDeviceNotFound means the token names a phone that is no longer in the
+	// session — its row was removed, so the phone must join again.
+	ErrDeviceNotFound = fmt.Errorf("%w: device", apperr.ErrNotFound)
 	// ErrSessionFinished means the session is over and no longer accepts input.
 	ErrSessionFinished = fmt.Errorf("%w: this session has already finished", apperr.ErrConflict)
 	// ErrNoVoucher means the session has not finished, so nothing was issued.
 	ErrNoVoucher = fmt.Errorf("%w: voucher", apperr.ErrNotFound)
+	// ErrNoLiveSession means the vehicle has no run under way. It is an internal
+	// signal — Join reads it as "you are the first phone here" — and never
+	// reaches a caller.
+	ErrNoLiveSession = fmt.Errorf("%w: live session", apperr.ErrNotFound)
 )
 
 // Status is where a session is in its lifecycle.
@@ -68,7 +87,7 @@ func (s Status) IsValid() bool { return slices.Contains(allStatuses, s) }
 // IsLive reports whether the session still accepts input.
 func (s Status) IsLive() bool { return s == StatusBound || s == StatusActive }
 
-// Session is one phone's run of the rally.
+// Session is one vehicle's run of the rally, shared by every phone in the car.
 type Session struct {
 	ID        string
 	EventID   string
@@ -86,13 +105,68 @@ type Session struct {
 	LastPingAt *time.Time
 }
 
-// BindTarget is what the repository knows about a vehicle at bind time.
-type BindTarget struct {
-	EventID      string
-	RouteID      string
-	Code         string
-	TeamName     string
-	CrewMemberID []string
+// CrewRosterMember is one person on a vehicle's roster, as the join check needs
+// them: the name a phone picks, and the number that proves the pick.
+type CrewRosterMember struct {
+	ID          string
+	Name        string
+	PhoneNumber string
+	Role        string
+}
+
+// JoinTarget is what the repository knows about a vehicle at join time.
+type JoinTarget struct {
+	EventID  string
+	RouteID  string
+	Code     string
+	TeamName string
+	Crew     []CrewRosterMember
+}
+
+// Device is one phone in the car.
+type Device struct {
+	ID             string
+	SessionID      string
+	CrewMemberID   string
+	CrewMemberName string
+	JoinedAt       time.Time
+	// LastSeenAt is the last time this phone reported anything. Whether it is
+	// currently sharing location is read from this, not from a stored role.
+	LastSeenAt *time.Time
+}
+
+// IsSharing reports whether this phone has been heard from recently enough to
+// count as covering the car's position.
+func (d Device) IsSharing(now time.Time) bool {
+	return d.LastSeenAt != nil && now.Sub(*d.LastSeenAt) <= SharingWindow
+}
+
+// SharingWindow is how recently a phone must have reported to count as sharing
+// location.
+//
+// Generous on purpose: a phone reports only while its app is in the foreground
+// and awake, so brief gaps are normal and treating one as "stopped sharing"
+// would flap. What matters is that a crew can see, before someone pockets their
+// phone, whether anyone else is still covering the car.
+const SharingWindow = 90 * time.Second
+
+// JoinInput is a request to put one crew member's phone into their car's run.
+type JoinInput struct {
+	VehicleID    string
+	CrewMemberID string
+	// PhoneLast4 is the last four digits of that member's own number, typed on
+	// the join screen. It is the whole of participant authentication.
+	PhoneLast4 string
+}
+
+// JoinResult is what a phone gets back when it joins.
+type JoinResult struct {
+	Session Session
+	Device  Device
+	// Crew is every phone in the car, so the joining one can show who is
+	// aboard and who is currently sharing location.
+	Crew  []Device
+	Token string
 }
 
 // EventInfo is the slice of an event the in-car runtime needs.
@@ -108,16 +182,8 @@ type EventInfo struct {
 // IsActive reports whether crews may bind and run.
 func (e EventInfo) IsActive() bool { return e.Status == "active" }
 
-// BindInput is a request to pair a phone with a vehicle.
-type BindInput struct {
-	VehicleID string
-	// CrewMemberIDs are the crew aboard, chosen from the vehicle's roster on
-	// the initialization screen.
-	CrewMemberIDs []string
-}
-
 // TaskState is one task as the crew sees it: the definition's identity plus
-// whether this session has already completed it.
+// whether the car has already completed it.
 type TaskState struct {
 	TaskID     string
 	WaypointID string
@@ -127,6 +193,9 @@ type TaskState struct {
 	Points     int
 	Status     string
 	Awarded    int
+	// CompletedBy names the crew member who won this task, so every phone can
+	// show who got there first. Empty while the task is unanswered.
+	CompletedBy string
 }
 
 // SessionState is everything the micro app needs to render its current screen.
@@ -143,6 +212,13 @@ type SessionState struct {
 	Waypoints    []WaypointGeo
 	// NextWaypointID is the first waypoint the crew has not reached.
 	NextWaypointID string
+	// Crew is every phone in the car. A phone renders "who is aboard" and "who
+	// is sharing location" from this, and warns its owner before they walk away
+	// with the only phone still reporting.
+	Crew []Device
+	// You is the calling phone's own row, so it can tell itself apart from the
+	// rest of Crew without matching on ids client-side.
+	You Device
 }
 
 // Voucher is what a crew collects at the finish.

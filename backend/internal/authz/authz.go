@@ -59,9 +59,12 @@ type Identity struct {
 	UserID string
 	Groups []string
 
-	// Team.
-	SessionID string
-	VehicleID string
+	// Team. SessionID is the car's run, shared by every phone in it;
+	// DeviceID and CrewMemberID say which phone and which person is calling.
+	SessionID    string
+	VehicleID    string
+	DeviceID     string
+	CrewMemberID string
 }
 
 // IsOrganizer reports whether the caller is staff.
