@@ -1,36 +1,91 @@
+<!doctype html>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>WSO2 Motor Rally 2027 — Wireframes</title>
+
+<!--
+  Applies the saved theme before the first paint. Inline and early on purpose:
+  loading it any later would flash the OS theme for a frame before switching,
+  which on a dark-mode machine reading the light wireframes is jarring.
+-->
+<script>
+  (function () {
+    var root = document.documentElement;
+
+    // Reveals the switcher, which is hidden by default so it never renders as
+    // a dead control on a page where scripts did not run.
+    root.classList.add("js");
+
+    // Shared with the switcher at the end of the page. "system" (or anything
+    // unrecognised) drops the attribute so the prefers-color-scheme media
+    // query takes over again.
+    root.applyRallyTheme = function (mode) {
+      if (mode === "light" || mode === "dark") {
+        root.setAttribute("data-theme", mode);
+      } else {
+        root.removeAttribute("data-theme");
+      }
+    };
+
+    try {
+      root.applyRallyTheme(localStorage.getItem("rally-wireframes-theme"));
+    } catch (e) {
+      // Private browsing can refuse localStorage entirely. The OS preference
+      // still applies, and the switcher still works for this page view.
+    }
+  })();
+</script>
+
 <style>
+  /*
+    Three ways to pick a theme, in increasing priority:
+      1. :root                              light, the default
+      2. @media (prefers-color-scheme:dark) the machine's setting
+      3. :root[data-theme="…"]              the switcher's explicit choice
+    The attribute selectors outrank the media query on specificity, so an
+    explicit choice wins in both directions regardless of source order.
+  */
   :root {
+    color-scheme: light;
     --canvas:#e8ecf2; --surface:#ffffff; --surface-2:#f3f6f9; --panel:#eef2f6;
     --ink:#17202e; --muted:#5f6b80; --faint:#b7c0cd; --bar:#d3dae3;
     --stroke:#cdd6e0; --stroke-2:#b2bdca; --chrome:#dce2ea;
     --accent:#0c8a9b; --accent-ink:#076370; --accent-wash:#dcf1f3;
     --amber:#b9760a; --amber-wash:#f6ebd6; --green:#2c8d57; --green-wash:#dcefe3;
+    /* Phone bezel. A variable rather than a literal so the device frame
+       follows the theme with the rest of the page. */
+    --bezel:#10151d;
     --font-sans:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
     --font-mono:ui-monospace,"SF Mono","Cascadia Code",Menlo,Consolas,monospace;
   }
   @media (prefers-color-scheme:dark){
     :root{
+      color-scheme: dark;
       --canvas:#0a1019; --surface:#131c28; --surface-2:#0e1620; --panel:#18222f;
       --ink:#e7edf5; --muted:#8c98aa; --faint:#3a4757; --bar:#2b3745;
       --stroke:#293544; --stroke-2:#3a4757; --chrome:#1a2531;
       --accent:#34b5c5; --accent-ink:#8fdbe4; --accent-wash:#0e2b30;
       --amber:#dda63f; --amber-wash:#2e2410; --green:#48ba80; --green-wash:#12261b;
+      --bezel:#05080c;
     }
   }
   :root[data-theme="dark"]{
+    color-scheme: dark;
     --canvas:#0a1019; --surface:#131c28; --surface-2:#0e1620; --panel:#18222f;
     --ink:#e7edf5; --muted:#8c98aa; --faint:#3a4757; --bar:#2b3745;
     --stroke:#293544; --stroke-2:#3a4757; --chrome:#1a2531;
     --accent:#34b5c5; --accent-ink:#8fdbe4; --accent-wash:#0e2b30;
     --amber:#dda63f; --amber-wash:#2e2410; --green:#48ba80; --green-wash:#12261b;
+    --bezel:#05080c;
   }
   :root[data-theme="light"]{
+    color-scheme: light;
     --canvas:#e8ecf2; --surface:#ffffff; --surface-2:#f3f6f9; --panel:#eef2f6;
     --ink:#17202e; --muted:#5f6b80; --faint:#b7c0cd; --bar:#d3dae3;
     --stroke:#cdd6e0; --stroke-2:#b2bdca; --chrome:#dce2ea;
     --accent:#0c8a9b; --accent-ink:#076370; --accent-wash:#dcf1f3;
     --amber:#b9760a; --amber-wash:#f6ebd6; --green:#2c8d57; --green-wash:#dcefe3;
+    --bezel:#10151d;
   }
 
   *{box-sizing:border-box}
@@ -42,6 +97,23 @@
   header.top{border-bottom:1px solid var(--stroke);padding-bottom:28px;margin-bottom:36px;}
   .eyebrow{font-family:var(--font-mono);font-size:12px;letter-spacing:.18em;text-transform:uppercase;
     color:var(--accent);margin:0 0 10px;}
+  .top-row{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:10px;}
+  .top-row .eyebrow{margin:0;}
+
+  /* ---- theme switcher ---- */
+  /* Hidden until the early script marks the root as scripted: without JS these
+     buttons cannot do anything, and a dead control is worse than none. The page
+     still themes itself from the OS setting in that case. */
+  .theme-switch{display:none;gap:2px;margin-left:auto;padding:2px;background:var(--surface);
+    border:1px solid var(--stroke-2);border-radius:999px;}
+  :root.js .theme-switch{display:flex;}
+  .theme-switch button{font-family:var(--font-mono);font-size:11px;letter-spacing:.04em;
+    padding:5px 12px;border:0;border-radius:999px;background:transparent;color:var(--muted);
+    cursor:pointer;line-height:1.4;}
+  .theme-switch button:hover{color:var(--ink);}
+  .theme-switch button[aria-pressed="true"]{background:var(--accent-wash);color:var(--accent-ink);
+    font-weight:600;}
+  .theme-switch button:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
   h1{font-size:clamp(28px,4vw,44px);line-height:1.08;margin:0 0 12px;font-weight:700;
     letter-spacing:-.02em;text-wrap:balance;}
   .sub{font-size:17px;color:var(--muted);max-width:64ch;margin:0 0 20px;}
@@ -158,12 +230,10 @@
   .lead.top{background:var(--accent-wash);border-color:var(--accent);}
 
   /* ---- phone frame ---- */
-  .phone{width:248px;flex-shrink:0;border:9px solid #10151d;border-radius:34px;overflow:hidden;
+  .phone{width:248px;flex-shrink:0;border:9px solid var(--bezel);border-radius:34px;overflow:hidden;
     background:var(--surface);position:relative;box-shadow:0 4px 18px rgba(0,0,0,.14);}
-  :root[data-theme="dark"] .phone{border-color:#05080c;}
-  @media (prefers-color-scheme:dark){.phone{border-color:#05080c;}}
   .notch{position:absolute;top:0;left:50%;transform:translateX(-50%);width:96px;height:20px;
-    background:#10151d;border-radius:0 0 13px 13px;z-index:5;}
+    background:var(--bezel);border-radius:0 0 13px 13px;z-index:5;}
   .pscreen{height:492px;display:flex;flex-direction:column;background:var(--surface);}
   .statusbar{height:26px;display:flex;align-items:center;justify-content:space-between;padding:0 16px 0 18px;
     font-size:9.5px;font-family:var(--font-mono);color:var(--muted);padding-top:4px;}
@@ -246,7 +316,14 @@
 
 <div class="wrap">
   <header class="top">
-    <p class="eyebrow">Popcorn Teams × WSO2 · Wireframes v1</p>
+    <div class="top-row">
+      <p class="eyebrow">Popcorn Teams × WSO2 · Wireframes v1</p>
+      <div class="theme-switch" role="group" aria-label="Colour theme">
+        <button type="button" data-set-theme="system" aria-pressed="true">System</button>
+        <button type="button" data-set-theme="light" aria-pressed="false">Light</button>
+        <button type="button" data-set-theme="dark" aria-pressed="false">Dark</button>
+      </div>
+    </div>
     <h1>WSO2 Motor Rally 2027 — App Wireframes</h1>
     <p class="sub">Low-fidelity screen structure and flow for the two front-ends: the organizer <b>Web App</b> and the in-car <b>Micro App</b>. Theme motif — vehicles are “data packets”, crews are “nodes”, routing from start to endpoint in perfect system sync.</p>
     <div class="meta">
@@ -837,3 +914,55 @@
     <b>Next:</b> on your sign-off of these wireframes, I write the design spec (architecture, data model, API surface, task-engine, scoring, real-time), then an implementation plan mirroring customer-portal conventions — Go backend + React/Oxygen web app + React PWA micro app.
   </div>
 </div>
+
+<!--
+  Wires the theme switcher. The choice itself was already applied by the inline
+  script in the head; this only handles clicks and the pressed state, so it can
+  safely wait until the markup exists.
+-->
+<script>
+  (function () {
+    var KEY = "rally-wireframes-theme";
+    var root = document.documentElement;
+    var buttons = document.querySelectorAll("[data-set-theme]");
+
+    function read() {
+      try {
+        return localStorage.getItem(KEY) || "system";
+      } catch (e) {
+        return "system";
+      }
+    }
+
+    function sync(mode) {
+      for (var i = 0; i < buttons.length; i++) {
+        buttons[i].setAttribute(
+          "aria-pressed",
+          String(buttons[i].getAttribute("data-set-theme") === mode),
+        );
+      }
+    }
+
+    function select(mode) {
+      root.applyRallyTheme(mode);
+      sync(mode);
+      try {
+        if (mode === "system") {
+          localStorage.removeItem(KEY);
+        } else {
+          localStorage.setItem(KEY, mode);
+        }
+      } catch (e) {
+        // Storage is unavailable; the choice still holds for this page view.
+      }
+    }
+
+    sync(read());
+
+    for (var i = 0; i < buttons.length; i++) {
+      buttons[i].addEventListener("click", function (event) {
+        select(event.currentTarget.getAttribute("data-set-theme"));
+      });
+    }
+  })();
+</script>
