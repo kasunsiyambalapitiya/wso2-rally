@@ -35,7 +35,7 @@ config and **no prettier**.
 | A1 Events dashboard | `/events` | ✅ |
 | A2 Event setup | `/events/new`, `/events/:eventId/setup` | ✅ |
 | A3 Routes & geofences | `/routes` | placeholder |
-| A4 Task library | `/tasks` | placeholder |
+| A4 Task library | `/tasks` | ✅ |
 | A5 Vehicles & crews | `/vehicles` | placeholder |
 | A6 Live monitor | `/monitor` | placeholder |
 | A7 Leaderboard | `/leaderboard` | placeholder |
@@ -152,7 +152,7 @@ pnpm dev                          # dev server on :3000, HMR
 pnpm build                        # tsc -b && vite build → dist/
 pnpm preview                      # serve the built dist/ locally
 pnpm test                         # vitest, watch mode
-pnpm exec vitest run              # vitest, single run (42 tests)
+pnpm exec vitest run              # vitest, single run (63 tests)
 pnpm exec vitest run src/config   # one directory
 pnpm lint                         # eslint
 ```

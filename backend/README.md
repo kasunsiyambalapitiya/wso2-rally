@@ -78,7 +78,7 @@ b64 = lambda d: base64.urlsafe_b64encode(json.dumps(d).encode()).rstrip(b"=").de
 print(b64({"alg":"RS256","typ":"JWT"}) + "." + b64({
     "iss":"https://api.asgardeo.io/t/local", "sub":"dev-organizer",
     "email":"dev@wso2.com", "groups":["rally-admin"],
-    "exp":int(time.time())+86400}) + ".signature-not-checked-locally")')
+    "exp":int(time.time())+86400}) + ".not-verified-in-decode-only-mode")')
 
 curl -s -H "Authorization: Bearer $TOKEN" localhost:8080/users/me
 # {"email":"dev@wso2.com","groups":["rally-admin"],"userId":"dev-organizer"}
@@ -89,6 +89,12 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/
 
 The `iss` can be anything except `rally-team`, which is reserved for team tokens
 and rejected on the organizer path so a crew token cannot be replayed as staff.
+
+> The signature is never checked here, but it must still be **decodable**
+> base64url — the JWT parser decodes all three segments before it looks at any
+> claim. That means its length may not be `1 mod 4`: the 32-character filler
+> above works, and a 29-character one would fail with
+> `could not base64 decode signature`, which surfaces as a plain `401`.
 
 ## Building
 
