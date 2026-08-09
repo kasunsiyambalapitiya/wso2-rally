@@ -271,7 +271,9 @@ REST style mirrors customer-portal: resource paths, `POST /…/search` for lists
   `POST /routes/{id}/waypoints` · `PATCH /routes/{id}/waypoints/order` (reorder) · `PATCH /waypoints/{id}` ·
   `DELETE /waypoints/{id}` (renumbers the remainder) · `POST /waypoints/{id}/tasks` (attach task ids)
 - Tasks: `POST /events/{id}/tasks` · `GET /tasks/{id}` · `PATCH /tasks/{id}` · `POST /events/{id}/tasks/search`
-- Vehicles/crew: `POST /events/{id}/vehicles` · `PATCH /vehicles/{id}` · `POST /events/{id}/vehicles/search` ·
+- Vehicles/crew: `POST /events/{id}/vehicles` · `GET /vehicles/{id}` · `PATCH /vehicles/{id}` ·
+  `DELETE /vehicles/{id}` (refused once the vehicle has a session) ·
+  `POST /events/{id}/vehicles/search` (`filters: {query, routeId}`) ·
   `POST /events/{id}/vehicles/import` (CSV) · `GET /events/{id}/vehicles/export` (CSV)
 - Alerts: `POST /vehicles/{id}/alerts` · `PATCH /alerts/{id}` (resolve)
 - Debrief: `POST /events/{id}/debrief-videos` · `POST /events/{id}/debrief-videos/search`
