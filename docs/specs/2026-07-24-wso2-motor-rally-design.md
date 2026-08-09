@@ -267,8 +267,9 @@ REST style mirrors customer-portal: resource paths, `POST /…/search` for lists
 **Organizer (Asgardeo token, role-gated):**
 - `GET /users/me`
 - Events: `POST /events` · `GET /events/{id}` · `PATCH /events/{id}` · `POST /events/search` · `POST /events/{id}/publish`
-- Routes/waypoints: `POST /events/{id}/routes` · `PATCH /routes/{id}` · `POST /routes/{id}/waypoints` ·
-  `PATCH /routes/{id}/waypoints/order` (reorder) · `PATCH /waypoints/{id}` · `POST /waypoints/{id}/tasks` (attach task ids)
+- Routes/waypoints: `POST /events/{id}/routes` · `GET /events/{id}/routes` · `GET /routes/{id}` · `PATCH /routes/{id}` ·
+  `POST /routes/{id}/waypoints` · `PATCH /routes/{id}/waypoints/order` (reorder) · `PATCH /waypoints/{id}` ·
+  `DELETE /waypoints/{id}` (renumbers the remainder) · `POST /waypoints/{id}/tasks` (attach task ids)
 - Tasks: `POST /events/{id}/tasks` · `GET /tasks/{id}` · `PATCH /tasks/{id}` · `POST /events/{id}/tasks/search`
 - Vehicles/crew: `POST /events/{id}/vehicles` · `PATCH /vehicles/{id}` · `POST /events/{id}/vehicles/search` ·
   `POST /events/{id}/vehicles/import` (CSV) · `GET /events/{id}/vehicles/export` (CSV)
