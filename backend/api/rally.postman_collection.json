@@ -704,13 +704,14 @@
             "body": {
               "mode": "raw",
               "options": { "raw": { "language": "json" } },
-              "raw": "{\n  \"offset\": 0,\n  \"limit\": 20\n}"
+              "raw": "{\n  \"offset\": 0,\n  \"limit\": 20,\n  \"filters\": {\n    \"query\": \"\",\n    \"routeId\": \"\"\n  }\n}"
             },
             "url": {
               "raw": "{{baseUrl}}/events/{{eventId}}/vehicles/search",
               "host": ["{{baseUrl}}"],
               "path": ["events", "{{eventId}}", "vehicles", "search"]
-            }
+            },
+            "description": "`filters.query` matches the vehicle code or the team name, anywhere in the value and ignoring case; `filters.routeId` narrows to one course. Both are optional, and the empty strings above match the whole fleet.\n\nThe returned `totalCount` counts what the filter matched, not the fleet, so a filtered table pages through its own results."
           },
           "event": [
             {
@@ -843,6 +844,34 @@
                   "    pm.collectionVariables.set('crewMemberId', vehicle.crew[0].id);",
                   "    pm.collectionVariables.set('phoneLast4', vehicle.crew[0].phoneNumber.replace(/\\D/g, '').slice(-4));",
                   "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Remove vehicle",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/vehicles/{{vehicleId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["vehicles", "{{vehicleId}}"]
+            },
+            "description": "Corrects provisioning; it does not retire a car mid-rally.\n\nSessions, submissions, scores and alerts all hang off the vehicle row by a cascading foreign key, so this is refused with a **409 once the vehicle has any session** — deleting one then would erase a result rather than fix a typo. The crew cascades away with the vehicle.\n\nRun it after the *In-car (crew)* folder and you should get the 409, which is the interesting case."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// 204 before the car has run, 409 after — both are correct,",
+                  "// so assert the pair rather than pinning one.",
+                  "pm.test('204 deleted, or 409 because it has run', () => {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([204, 409]);",
+                  "});"
                 ]
               }
             }

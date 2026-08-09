@@ -36,7 +36,7 @@ config and **no prettier**.
 | A2 Event setup | `/events/new`, `/events/:eventId/setup` | ✅ |
 | A3 Routes & geofences | `/routes` | ✅ |
 | A4 Task library | `/tasks` | ✅ |
-| A5 Vehicles & crews | `/vehicles` | placeholder |
+| A5 Vehicles & crews | `/vehicles` | ✅ |
 | A6 Live monitor | `/monitor` | placeholder |
 | A7 Leaderboard | `/leaderboard` | placeholder |
 | A8 Debrief | `/debrief` | placeholder |
@@ -152,7 +152,7 @@ pnpm dev                          # dev server on :3000, HMR
 pnpm build                        # tsc -b && vite build → dist/
 pnpm preview                      # serve the built dist/ locally
 pnpm test                         # vitest, watch mode
-pnpm exec vitest run              # vitest, single run (77 tests)
+pnpm exec vitest run              # vitest, single run (94 tests)
 pnpm exec vitest run src/config   # one directory
 pnpm lint                         # eslint
 ```
@@ -192,10 +192,15 @@ The Choreo gateway owns TLS, CORS and organizer token validation.
   design spec. Leaflet measures the DOM, which jsdom does not lay out, so
   `vitest.setup.ts` stubs the whole module — add a stub there when a page starts
   using a react-leaflet component the mock does not list yet.
-- **A3 sends whole sets, never deltas.** Reordering posts the full permutation
-  and attaching a task posts the waypoint's complete task list, because both
-  backend endpoints replace rather than merge — a partial list would silently
-  drop legs or detach tasks.
+- **A3 and A5 send whole sets, never deltas.** Reordering posts the full
+  permutation, attaching a task posts the waypoint's complete task list, and
+  saving a vehicle posts its complete crew — those endpoints replace rather than
+  merge, so a partial list would silently drop legs, detach tasks, or delete
+  crew members.
+- **The CSV export is a `fetch`, not a link.** The endpoint needs the bearer
+  token, and a browser-initiated navigation (`<a href>`, `window.open`) would
+  arrive unauthenticated. It goes through `useAuthApiClient` and reaches the
+  browser as a blob via `utils/csv.ts`.
 
 ## Troubleshooting
 

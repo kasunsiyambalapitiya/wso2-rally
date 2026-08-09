@@ -259,6 +259,11 @@ in-memory fake and the SQL is tested separately against a real MySQL.
   identities; `tasks.RedactForCrew` removes the scoring keys before the
   definition reaches a phone. **Any new config key that decides a score must be
   added to `secretConfigKeys`**, or it ships to the car with the question.
+- **A vehicle can be deleted only before it runs.** Sessions, submissions,
+  scores and alerts all hang off `vehicle` by a cascading foreign key, so
+  `DELETE /vehicles/{id}` checks `team_session` first and returns 409 if the car
+  has any. The delete exists to fix provisioning, never to retire a car
+  mid-rally.
 - **A timestamp you do arithmetic on needs `TIMESTAMP(3)`.** A bare `TIMESTAMP`
   has no fractional seconds and MySQL *rounds* to the nearest second on write,
   so a value can come back up to half a second in the **future**. That is
