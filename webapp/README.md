@@ -34,7 +34,7 @@ config and **no prettier**.
 | ------ | ----- | ------ |
 | A1 Events dashboard | `/events` | ✅ |
 | A2 Event setup | `/events/new`, `/events/:eventId/setup` | ✅ |
-| A3 Routes & geofences | `/routes` | placeholder |
+| A3 Routes & geofences | `/routes` | ✅ |
 | A4 Task library | `/tasks` | ✅ |
 | A5 Vehicles & crews | `/vehicles` | placeholder |
 | A6 Live monitor | `/monitor` | placeholder |
@@ -152,7 +152,7 @@ pnpm dev                          # dev server on :3000, HMR
 pnpm build                        # tsc -b && vite build → dist/
 pnpm preview                      # serve the built dist/ locally
 pnpm test                         # vitest, watch mode
-pnpm exec vitest run              # vitest, single run (63 tests)
+pnpm exec vitest run              # vitest, single run (77 tests)
 pnpm exec vitest run src/config   # one directory
 pnpm lint                         # eslint
 ```
@@ -189,7 +189,13 @@ The Choreo gateway owns TLS, CORS and organizer token validation.
 - **`jsdom` is pinned to 26.x.** jsdom 27 requires `require(esm)`, which lands
   in Node 20.19. Raise it once the team's Node floor moves.
 - Maps are `react-leaflet` + OpenStreetMap tiles, with no API key, per the
-  design spec.
+  design spec. Leaflet measures the DOM, which jsdom does not lay out, so
+  `vitest.setup.ts` stubs the whole module — add a stub there when a page starts
+  using a react-leaflet component the mock does not list yet.
+- **A3 sends whole sets, never deltas.** Reordering posts the full permutation
+  and attaching a task posts the waypoint's complete task list, because both
+  backend endpoints replace rather than merge — a partial list would silently
+  drop legs or detach tasks.
 
 ## Troubleshooting
 

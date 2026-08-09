@@ -474,6 +474,35 @@
               }
             }
           ]
+        },
+        {
+          "name": "Remove waypoint",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/waypoints/{{waypointId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["waypoints", "{{waypointId}}"]
+            },
+            "description": "Drops a leg and returns the renumbered route.\n\nThe remaining waypoints close the gap so `display_order` stays 0..n-1 — the in-car runtime walks that order to decide what is next, and a hole would strand a crew at it. The waypoint's task attachments cascade away with it; the tasks themselves stay in the event's library.\n\nSend this last in the folder: it leaves `{{waypointId}}` pointing at a row that no longer exists."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const route = pm.response.json();",
+                  "pm.test('the order is left gap-free', () => {",
+                  "    const orders = (route.waypoints || []).map((w) => w.order);",
+                  "    pm.expect(orders).to.eql(orders.map((_, i) => i));",
+                  "});"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
