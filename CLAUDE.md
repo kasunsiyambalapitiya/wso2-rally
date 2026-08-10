@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | Component | State |
 | --- | --- |
 | `backend/` | **Built.** Every domain in the spec (`events`, `routes`, `tasks`, `vehicles`, `alerts`, `sessions`, `scoring`, `debrief`, `taskengine`, `geo`, `realtime`), the full schema, and both the organizer and team-token paths. Unit tests everywhere; DB-backed and integration tests behind `TEST_DB_DSN`. |
-| `webapp/` | **A1–A5 built** (`/events`, event setup, `/routes`, `/tasks`, `/vehicles`). A6–A8 render `ComingSoonPage` so the sidebar never dead-ends. |
+| `webapp/` | **A1–A6 built** (`/events`, event setup, `/routes`, `/tasks`, `/vehicles`, `/monitor`). A7–A8 render `ComingSoonPage` so the sidebar never dead-ends. |
 | `microapp/` | **Not scaffolded.** Nothing exists yet; start from `docs/plans/2026-07-24-microapp.md`. |
 
 `webapp/README.md` and `backend/README.md` are kept current and are the fastest way in — read the component
@@ -112,6 +112,13 @@ server-side; the client never decides correctness or points. Arrival geofence au
    `handler → service → repository` rather than `handler → downstream client`.
 
 Web Bluetooth is never used (unsupported on iOS Safari) — Task 8 proximity is QR or geofence.
+
+**WebSocket auth is a subprotocol, not a header or a query parameter.** Both front ends connect with
+`new WebSocket(url, ["rally-bearer", token])`: a browser can set no header on a handshake, and a token in
+the query string would land in the backend's request log and the browser's history. `middleware.Auth` reads
+the entry after the marker; `realtime.Hub` echoes the marker (never the token) back on accept, because
+RFC 6455 lets a browser close a connection that agreed on no offered subprotocol. The micro app's
+`session:{id}` subscription uses the same mechanism with its team token.
 
 ## Conventions that are easy to get wrong
 

@@ -300,6 +300,10 @@ REST style mirrors customer-portal: resource paths, `POST /…/search` for lists
 - `GET /sessions/me/vouchers`
 
 **WebSocket `/ws`:**
+- **Auth:** the token rides in the subprotocol list, `["rally-bearer", "<token>"]`, because a browser can
+  set no header on a handshake and a query-string token would land in the request log, the browser history
+  and every proxy. The server echoes back only the marker (RFC 6455 requires *an* agreed subprotocol). A
+  non-browser client may still send `Authorization: Bearer`, which wins where both are present.
 - Organizer subscribes `event:{id}` → receives `vehicle_position`, `task_completed`, `score_delta`,
   `leaderboard`, `alert` messages.
 - Every phone in a car subscribes `session:{id}` → receives `task_unlocked` (the navigator crossed a

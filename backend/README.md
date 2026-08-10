@@ -254,6 +254,15 @@ in-memory fake and the SQL is tested separately against a real MySQL.
   identities; `tasks.RedactForCrew` removes the scoring keys before the
   definition reaches a phone. **Any new config key that decides a score must be
   added to `secretConfigKeys`**, or it ships to the car with the question.
+- **The WebSocket token arrives as a subprotocol, not a header.** A browser
+  cannot set one on a handshake, so `middleware.Auth` falls back to
+  `Sec-WebSocket-Protocol: rally-bearer, <token>` (`authz.BearerSubprotocol`)
+  when there is no `Authorization` header. Deliberately *not* a query parameter:
+  the request logger, the browser's history and every proxy would record it.
+  `realtime.Hub` must keep echoing the marker back on accept — RFC 6455 lets a
+  browser close a connection that agreed on none of the protocols it offered —
+  and must never echo the token, which would put the credential in a response
+  header.
 - **A vehicle can be deleted only before it runs.** Sessions, submissions,
   scores and alerts all hang off `vehicle` by a cascading foreign key, so
   `DELETE /vehicles/{id}` checks `team_session` first and returns 409 if the car

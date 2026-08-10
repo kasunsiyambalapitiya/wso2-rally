@@ -111,16 +111,56 @@ func requireKind(kind authz.Kind, next http.Handler) http.Handler {
 	})
 }
 
-// bearerToken extracts the credential from an Authorization header. The scheme
-// match is case-insensitive per RFC 7235; the token itself is not trimmed
-// beyond surrounding spaces.
+// bearerToken extracts the credential from an Authorization header, falling
+// back to the WebSocket subprotocol list for handshakes, which cannot carry one.
+//
+// The header is authoritative where both are present: an ordinary request has
+// no business offering subprotocols, and preferring them would let one override
+// the credential the caller actually authenticated with.
 func bearerToken(r *http.Request) (string, bool) {
 	header := r.Header.Get("Authorization")
 	if len(header) < len(bearerPrefix) || !strings.EqualFold(header[:len(bearerPrefix)], bearerPrefix) {
-		return "", false
+		return subprotocolToken(r)
 	}
 
 	token := strings.TrimSpace(header[len(bearerPrefix):])
+	if token == "" {
+		return subprotocolToken(r)
+	}
 
-	return token, token != ""
+	return token, true
+}
+
+// subprotocolToken reads the token a browser offered as
+// `Sec-WebSocket-Protocol: rally-bearer, <token>`.
+//
+// Only the entry immediately after the marker counts. Anything else — the
+// marker alone, some other protocol, a name that merely starts the same way —
+// yields nothing, so a malformed handshake is a 401 rather than a guess.
+func subprotocolToken(r *http.Request) (string, bool) {
+	offered := r.Header.Values("Sec-WebSocket-Protocol")
+	if len(offered) == 0 {
+		return "", false
+	}
+
+	// The header may arrive as one comma-separated list or as repeated headers.
+	var protocols []string
+	for _, value := range offered {
+		for entry := range strings.SplitSeq(value, ",") {
+			protocols = append(protocols, strings.TrimSpace(entry))
+		}
+	}
+
+	for i, protocol := range protocols {
+		if protocol != authz.BearerSubprotocol {
+			continue
+		}
+		if i+1 < len(protocols) && protocols[i+1] != "" {
+			return protocols[i+1], true
+		}
+
+		return "", false
+	}
+
+	return "", false
 }
