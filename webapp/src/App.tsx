@@ -23,6 +23,7 @@ import ComingSoonPage from "@components/placeholder/ComingSoonPage";
 import EventsPage from "@features/events/pages/EventsPage";
 import EventSetupPage from "@features/events/pages/EventSetupPage";
 import RoutesPage from "@features/routes/pages/RoutesPage";
+import MonitorPage from "@features/monitor/pages/MonitorPage";
 import TasksPage from "@features/tasks/pages/TasksPage";
 import VehiclesPage from "@features/vehicles/pages/VehiclesPage";
 import { LoaderProvider } from "@context/linear-loader/LoaderContext";
@@ -49,12 +50,9 @@ export default function App(): JSX.Element {
               <Route path="routes" element={<RoutesPage />} />
               <Route path="tasks" element={<TasksPage />} />
               <Route path="vehicles" element={<VehiclesPage />} />
+              <Route path="monitor" element={<MonitorPage />} />
 
-              {/* Wireframes A6–A8 — routed so the sidebar never dead-ends. */}
-              <Route
-                path="monitor"
-                element={<ComingSoonPage title="Live Monitor" screen="A6" />}
-              />
+              {/* Wireframes A7–A8 — routed so the sidebar never dead-ends. */}
               <Route
                 path="leaderboard"
                 element={<ComingSoonPage title="Leaderboard" screen="A7" />}

@@ -37,7 +37,7 @@ config and **no prettier**.
 | A3 Routes & geofences | `/routes` | ✅ |
 | A4 Task library | `/tasks` | ✅ |
 | A5 Vehicles & crews | `/vehicles` | ✅ |
-| A6 Live monitor | `/monitor` | placeholder |
+| A6 Live monitor | `/monitor` | ✅ |
 | A7 Leaderboard | `/leaderboard` | placeholder |
 | A8 Debrief | `/debrief` | placeholder |
 
@@ -152,7 +152,7 @@ pnpm dev                          # dev server on :3000, HMR
 pnpm build                        # tsc -b && vite build → dist/
 pnpm preview                      # serve the built dist/ locally
 pnpm test                         # vitest, watch mode
-pnpm exec vitest run              # vitest, single run (94 tests)
+pnpm exec vitest run              # vitest, single run (115 tests)
 pnpm exec vitest run src/config   # one directory
 pnpm lint                         # eslint
 ```
@@ -197,6 +197,16 @@ The Choreo gateway owns TLS, CORS and organizer token validation.
   saving a vehicle posts its complete crew — those endpoints replace rather than
   merge, so a partial list would silently drop legs, detach tasks, or delete
   crew members.
+- **The live socket sends its token as a subprotocol.**
+  `new WebSocket(url, ["rally-bearer", idToken])` — a browser can set no header
+  on a handshake, and a query-string token would land in the backend's request
+  log and the browser's history. `useEventSocket` reconnects with backoff and
+  calls `onReconnect` so the page can refetch its snapshot; the hub keeps no
+  history, so anything broadcast while the socket was down is gone.
+- **`useAsgardeo()` returns a new `getIdToken` every render.** Anything holding
+  it in an effect dependency array rebuilds on each render — for the socket that
+  was a reconnect storm. Keep it in a ref, synced in an effect (never during
+  render; the lint rule enforces that).
 - **The CSV export is a `fetch`, not a link.** The endpoint needs the bearer
   token, and a browser-initiated navigation (`<a href>`, `window.open`) would
   arrive unauthenticated. It goes through `useAuthApiClient` and reaches the
