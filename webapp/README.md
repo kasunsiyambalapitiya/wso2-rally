@@ -152,7 +152,7 @@ pnpm dev                          # dev server on :3000, HMR
 pnpm build                        # tsc -b && vite build → dist/
 pnpm preview                      # serve the built dist/ locally
 pnpm test                         # vitest, watch mode
-pnpm exec vitest run              # vitest, single run (115 tests)
+pnpm exec vitest run              # vitest, single run (116 tests)
 pnpm exec vitest run src/config   # one directory
 pnpm lint                         # eslint
 ```
@@ -192,6 +192,11 @@ The Choreo gateway owns TLS, CORS and organizer token validation.
   design spec. Leaflet measures the DOM, which jsdom does not lay out, so
   `vitest.setup.ts` stubs the whole module — add a stub there when a page starts
   using a react-leaflet component the mock does not list yet.
+- **A5's crew rows need a WSO2 email.** The in-car app is embedded in the super
+  app, which authenticates the person, and `POST /sessions/join` matches that
+  identity against `crew_member.email`. A roster row without one is a crew member
+  who cannot start, so the form refuses it — and refuses two members of one car
+  sharing an address, which would make the join ambiguous.
 - **A3 and A5 send whole sets, never deltas.** Reordering posts the full
   permutation, attaching a task posts the waypoint's complete task list, and
   saving a vehicle posts its complete crew — those endpoints replace rather than
