@@ -34,12 +34,13 @@ the client side and implemented behaviour on the server side.
 graph TB
     subgraph untrusted["Untrusted — public internet"]
         ORG["Rally Organizer<br/>browser [Untrusted]"]
-        CREW["Crew phones, ~600<br/>unmanaged [Untrusted]"]
+        CREW["Crew phones, ~600<br/>rally runs inside the WSO2 Open<br/>Super App WebView [Untrusted]"]
         ATT["Malicious actor<br/>[Untrusted]"]
     end
 
     subgraph external["External entities [B-EX-EN]"]
         ASG["Asgardeo<br/>OIDC + JWKS"]
+        SUP["WSO2 Open Super App<br/>hosts the micro app; obtains and<br/>hands over its Asgardeo token"]
         OSM["OpenStreetMap<br/>tile servers"]
     end
 
@@ -202,23 +203,24 @@ sequenceDiagram
     participant T as HMACTokenMinter [B-IN]
     participant DB as MySQL [B-IN]
 
-    Note over P,DB: Boundary: Untrust → Trust — THE ONLY UNAUTHENTICATED WRITE<br/>[M-NT] HTTPS<br/>[C-High] mints a 12-hour bearer token
+    Note over P,DB: Boundary: Untrust → Trust — AUTHENTICATED<br/>[M-NT] HTTPS<br/>[C-High] exchanges an Asgardeo token for a 12-hour team token
 
-    P->>G: POST /sessions/join<br/>{vehicleId, crewMemberId, phoneLast4}<br/>[M-NT] HTTPS [C-High]
-    G->>H: Forward — NO bearer token required
-    H->>SV: Join(input)
-    SV->>DB: SELECT crew_member WHERE id = ?<br/>[M-DB] TCP 3306 [C-High] PII
-    SV->>SV: checkPhoneLast4(roster, typed)
-    alt Digits match
-        SV->>DB: INSERT/UPDATE team_session (unique per vehicle)<br/>[M-DB] TCP 3306 [C-Medium]
+    P->>P: nativebridge.requestToken() — the super app<br/>exchanges with Asgardeo for this app's clientId
+    P->>G: POST /sessions/join<br/>{vehicleId} + Authorization: Bearer &lt;Asgardeo token&gt;<br/>[M-NT] HTTPS [C-High]
+    G->>H: Forward — organizer-issued token validated by middleware.Auth
+    H->>SV: Join(input, callerEmail)
+    SV->>DB: SELECT crew_member WHERE vehicle_id = ? AND email = ?<br/>[M-DB] TCP 3306 [C-High] PII
+    alt Caller is on that vehicle's roster
+        SV->>DB: INSERT/UPDATE team_session (unique live session per vehicle)<br/>[M-DB] TCP 3306 [C-Medium]
         SV->>DB: UPSERT session_device (unique per member)<br/>[M-DB] TCP 3306 [C-Medium]
         SV->>T: MintTeamToken{session, vehicle, device, crew}
         T-->>SV: JWT HS256, iss=rally-team, 12h
         SV-->>P: {teamToken, session, device, crew}<br/>[M-NT] HTTPS [C-High]
-    else Digits wrong
-        SV-->>P: 4xx validation error
+        P->>P: nativebridge secure store — NOT localStorage
+    else Not on the roster
+        SV-->>P: 403
     end
-    Note over P,SV: RALLY-R1 — 10,000 combinations, ids enumerable,<br/>no rate limit, no lockout, no CAPTCHA, no revocation.
+    Note over P,SV: RALLY-R1 CLOSED by embedding: the join is no longer<br/>unauthenticated and there are no digits to guess.<br/>Residual: (a) the super app is now a token-bearing intermediary<br/>inside the trust path; (b) a wrong roster email locks a real<br/>participant out — a denial, not an escalation; (c) every crew<br/>member now holds a valid Asgardeo token, so RequireOrganizer<br/>MUST gate on the organizer group, not on token kind alone.
 ```
 
 ---
@@ -390,7 +392,7 @@ sequenceDiagram
 |---|---|---|---|---|---|
 | 1 | Organizer authentication | Untrust → Trust | `[M-NT]` HTTPS | `[C-High]` id token, email, groups | RALLY-R2, R3, R5, R6 |
 | 2 | Event administration | Trust → Trust | `[M-NT]` + `[M-DB]` | `[C-Medium]`; cipher `[C-High]` | RALLY-R2 |
-| 3 | Crew join | **Untrust → Trust, unauthenticated** | `[M-NT]` HTTPS | `[C-High]` mints a 12h token | **RALLY-R1**, R4 |
+| 3 | Crew join | Untrust → Trust, **authenticated** (super app's Asgardeo token) | `[M-NT]` HTTPS | `[C-High]` exchanges it for a 12h team token | R4 (R1 closed by embedding) |
 | 4 | Location streaming | Untrust → Trust | `[M-NT]` HTTPS | `[C-High]` participant location | RALLY-R5, R7, R10 |
 | 5 | Task retrieval | Untrust → Trust | `[M-NT]` HTTPS | `[C-High]` unredacted config | RALLY-R8 |
 | 6 | Task submission | Untrust → Trust | `[M-NT]` + `[M-DB]` | `[C-Medium]` answers and scores | RALLY-R5, R11 |

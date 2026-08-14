@@ -328,7 +328,7 @@
     <p class="sub">Low-fidelity screen structure and flow for the two front-ends: the organizer <b>Web App</b> and the in-car <b>Micro App</b>. Theme motif — vehicles are “data packets”, crews are “nodes”, routing from start to endpoint in perfect system sync.</p>
     <div class="meta">
       <span class="tag">Scope&nbsp;<b>MVP prototype</b></span>
-      <span class="tag">Micro app&nbsp;<b>React PWA + Web APIs</b></span>
+      <span class="tag">Micro app&nbsp;<b>React, embedded in the Open Super App</b></span>
       <span class="tag">Participant auth&nbsp;<b>Vehicle ID + crew dropdown</b></span>
       <span class="tag">Web app&nbsp;<b>React + Oxygen UI + Asgardeo</b></span>
       <span class="tag">Backend&nbsp;<b>Go REST + WebSocket</b></span>
@@ -522,7 +522,7 @@
                   <tr><td>15</td><td>Sequence Gate Match</td><td><span class="chip acc">Puzzle</span></td><td>Geofence</td><td>70</td><td><span class="btn ghost" style="height:20px;padding:0 9px;font-size:10px">Edit</span></td></tr>
                 </table>
               </div>
-              <span class="lbl">* BLE substituted with QR/geofence checkpoint on iOS PWA</span>
+              <span class="lbl">* BLE substituted with QR/geofence checkpoint; QR uses the super app's native scanner</span>
             </div>
           </div>
         </div>
@@ -655,7 +655,7 @@
   <section>
     <div class="sec-head">
       <span class="sec-num">B</span>
-      <h2>Micro App — In-Car PWA</h2>
+      <h2>Micro App — In-Car, embedded in the Open Super App</h2>
       <span class="sec-note">Mobile portrait · one active phone · MUI · Web sensor APIs</span>
     </div>
     <div class="scroller">
@@ -668,19 +668,17 @@
             <div class="statusbar"><span>9:41</span><span>▂▄▆ 🔋</span></div>
             <div class="appbar"><div class="at">System init</div></div>
             <div class="pbody">
-              <div class="plabel">Vehicle ID</div>
+              <div class="plabel">Signed in as</div>
+              <div class="pinput" style="opacity:.75">nimal@wso2.com</div>
+              <div class="plabel">Your vehicle</div>
               <div class="pinput">Select vehicle…<span class="cv">▾</span></div>
-              <div class="plabel">Crew nodes</div>
-              <div class="pinput">Navigator…<span class="cv">▾</span></div>
-              <div class="pinput">Node 2…<span class="cv">▾</span></div>
-              <div class="pinput">Node 3…<span class="cv">▾</span></div>
-              <div class="pinput">Node 4…<span class="cv">▾</span></div>
+              <div class="plabel" style="font-size:8px">Your crew is read from the roster for that vehicle</div>
               <div style="flex:1"></div>
-              <div class="pbtn">Bind vehicle</div>
+              <div class="pbtn">Join vehicle</div>
             </div>
           </div>
         </div>
-        <div class="cap" style="max-width:248px"><div class="ct"><span class="cn">B1</span>Initialization</div><div class="cd">Navigator binds vehicle ID + crew from dropdowns. Instant background DB bind — no registration form.</div></div>
+        <div class="cap" style="max-width:248px"><div class="ct"><span class="cn">B1</span>Initialization</div><div class="cd">The super app has already signed the crew member in, so this asks one thing: which vehicle are you in? Picking it joins the car's session and issues the team token — no name picker, no phone digits, no registration form.</div></div>
       </div>
 
       <!-- M2 Geofence lock -->
@@ -764,7 +762,7 @@
             </div>
           </div>
         </div>
-        <div class="cap" style="max-width:248px"><div class="ct"><span class="cn">B5</span>Sensor: camera / barcode</div><div class="cd">Live camera with barcode reticle. Match verified against the task payload in the backend.</div></div>
+        <div class="cap" style="max-width:248px"><div class="ct"><span class="cn">B5</span>Sensor: camera / barcode</div><div class="cd">Scan hands off to the super app's native scanner, which takes over the screen and returns the code — the micro app renders no camera of its own, since a WebView served from file:// cannot open one. Manual entry is the fallback. Match verified against the task payload in the backend.</div></div>
       </div>
 
       <!-- M6 Eco-driving telematics -->
@@ -911,7 +909,7 @@
   </section>
 
   <div class="foot">
-    <b>Next:</b> on your sign-off of these wireframes, I write the design spec (architecture, data model, API surface, task-engine, scoring, real-time), then an implementation plan mirroring customer-portal conventions — Go backend + React/Oxygen web app + React PWA micro app.
+    <b>Next:</b> on your sign-off of these wireframes, I write the design spec (architecture, data model, API surface, task-engine, scoring, real-time), then an implementation plan mirroring customer-portal conventions — Go backend + React/Oxygen web app + React micro app embedded in the Open Super App.
   </div>
 </div>
 

@@ -1,7 +1,8 @@
 # WSO2 Motor Rally 2027 — Milestone Roadmap
 
 **Date:** 2026-07-24 · **Spec:** `../specs/2026-07-24-wso2-motor-rally-design.md`
-**Detailed plans:** `2026-07-24-backend.md` (BE), `2026-07-24-webapp.md` (WA), `2026-07-24-microapp.md` (MA)
+**Detailed plans:** `2026-07-24-backend.md` (BE), `2026-07-24-webapp.md` (WA), `2026-07-24-microapp.md` (MA),
+`2026-08-10-superapp-location.md` (SA — runs in the `opensuperapp` repo)
 
 This roadmap sequences the three task-level plans into two shippable milestones. It does **not** restate task steps — it says *what to build in what order* and *when each milestone is done*. Follow the referenced tasks (e.g. `BE-7` = backend plan Task 7) in the order listed here rather than strictly 1→N within a single plan.
 
@@ -18,7 +19,7 @@ This roadmap sequences the three task-level plans into two shippable milestones.
 
 ## Milestone 1 — Organizer portal (backend + web app)
 
-**Goal:** An organizer signs in with Asgardeo and can create an event, draw start/end geofences, order route waypoints and attach tasks, author the 15 task definitions, provision vehicles + crews (incl. CSV), raise/resolve vehicle alerts, and open the live-monitor + leaderboard + debrief screens.
+**Goal:** An organizer signs in with Asgardeo and can create an event, draw start/end geofences, order route waypoints and attach tasks, author the 15 task definitions, provision vehicles + crews with their WSO2 email (incl. CSV), raise/resolve vehicle alerts, and open the live-monitor + leaderboard + debrief screens.
 
 ### Phase 1A — Backend (organizer API)
 
@@ -37,7 +38,15 @@ Order:
 12. `BE-15` debrief
 13. `BE-16a` realtime hub + `event:{id}` subscribe + **alert** broadcast (participant-driven broadcasts deferred to M2)
 14. `BE-17a` contracts scaffold: `.choreo/component.yaml`, README, and `openapi.yaml` covering the organizer endpoints above
-15. `BE-M1-int` organizer integration test: create event → publish → route + waypoint → task → attach → vehicle (+CSV round-trip) → raise alert → `GET /leaderboard` (empty) all green
+15. `BE-19` **super-app join** — the micro app is embedded, so identity arrives from the host: add
+    `crew_member.email` (migration + CSV import/export column + webapp A5 field), accept an
+    organizer-issued Asgardeo token on `POST /sessions/join`, resolve the crew member by email, and drop
+    `crewMemberId` + `phoneLast4` from the body. In Milestone 1 because the schema and the roster surface
+    are Milestone 1 concerns — the micro app that exercises it lands in Milestone 2.
+16. `BE-21` **`RequireOrganizer` requires the organizer group.** Once crews hold Asgardeo tokens, token
+    *kind* no longer separates staff from participants: a crew member would otherwise read the whole
+    organizer surface. Admin actions were already group-gated; the read surface was not.
+17. `BE-M1-int` organizer integration test: create event → publish → route + waypoint → task → attach → vehicle (+CSV round-trip) → raise alert → `GET /leaderboard` (empty) all green
 
 ### Phase 1B — Web app (organizer portal)
 
@@ -58,34 +67,51 @@ Order: `WA-1` scaffold → `WA-2` auth API client → `WA-3` layouts/guards/side
 
 ## Milestone 2 — In-car experience (backend game layer + micro app)
 
-**Goal:** A crew binds one phone to a vehicle + crew, is held at the start geofence, gets the 09:00 sync + cipher, completes the 15 tasks (with real sensors), reports issues, and finishes at Pearl Bay with vouchers — while their positions, completions, scores, and alerts stream live into the organizer's A6/A7 from Milestone 1.
+**Goal:** A crew opens the rally from the super app, each member joins their vehicle, the car is held at the start geofence, gets the 09:00 sync + cipher, completes the 15 tasks (with real sensors), reports issues, and finishes at Pearl Bay with vouchers — while their positions, completions, scores, and alerts stream live into the organizer's A6/A7 from Milestone 1.
 
 ### Phase 2A — Backend (participant / game runtime)
 
 Order:
 1. `BE-3` geo (haversine + point-in-radius)
-2. `BE-12` sessions — bind (team token, one-active-phone), state, location ping + server-side geofence eval, crew alert (`source=crew`, reuses `BE-11`)
+2. `BE-12` sessions — join (team token, one live session per vehicle, a device row per member), state, location ping + server-side geofence eval, crew alert (`source=crew`, reuses `BE-11`)
 3. `BE-13` task engine — per-type validators/scorers + `POST /sessions/me/tasks/{id}/submit`
 4. `BE-16b` wire participant broadcasts into the hub + `session:{id}` subscribe: `score_delta` + `leaderboard` (on submit), `vehicle_position` + `task_completed` (on ping/submit), `start_signal` + `cipher_reveal` + `rest_lock` + `arrival` (session lifecycle)
 5. arrival/vouchers finish flow (part of `BE-12`) + `GET /sessions/me/vouchers`
 6. `BE-17b` extend `openapi.yaml` + write `asyncapi.yaml` for the participant + WS surface
-7. `BE-18` full happy-path integration test (bind → geofenced unlock → submit → score → leaderboard; second bind → 409)
+7. `BE-18` full happy-path integration test (join → geofenced unlock → submit → score → leaderboard)
+8. `BE-20` accept an optional client `ts` on `POST /sessions/me/location`, so a buffered flush from the
+   super app is judged against when each fix was taken rather than when it arrived. A missing `ts` means
+   "now", leaving the live path unchanged. Needed by `SA-4`.
 
-### Phase 2B — Micro app (in-car PWA)
+### Phase 2B — Micro app (in-car, embedded in the Open Super App)
 
-Order: `MA-1` scaffold PWA/env/theme → `MA-2` axios + team-token + session store/service → `MA-3` sensors module → `MA-4` B1 init/bind → `MA-5` B2 geofence lock → `MA-6` B3 countdown+cipher (WS) → `MA-7` B4 route + stats header + report button → `MA-8` B7 task shell + input tasks → `MA-9` sensor task screens (B5/B6/B8 + proximity/trivia) → `MA-10` B9 arrival+vouchers → `MA-11` B10 report issue → `MA-12` finalize/PWA/build.
+Order: `MA-1` scaffold static build/runtime config/`microapp.json`/theme → `MA-2` native bridge + super-app auth + axios + team token + session store/service → `MA-3` sensors (pluggable position source, motion, native QR) → `MA-4` B1 pick-vehicle + join → `MA-5` B2 geofence lock → `MA-6` B3 countdown+cipher (WS) → `MA-7` B4 route + stats header + report button → `MA-8` B7 task shell + input tasks → `MA-9` sensor task screens (B5/B6/B8 + proximity/trivia) → `MA-10` B9 arrival+vouchers → `MA-11` B10 report issue → `MA-12` finalize/store packaging/release.
 
-> `MA-1`–`MA-3` (scaffold + client + sensors) can run in parallel with Phase 2A once `BE-12` bind exists.
+> `MA-1`–`MA-3` (scaffold + bridge + client + sensors) can run in parallel with Phase 2A once `BE-12` join
+> exists. `MA-4` consumes `BE-19`, which ships in Milestone 1, so it is ready before Phase 2B starts.
+
+### Phase 2C — Super app location (parallel track, `opensuperapp` repo)
+
+`SA-1` permissions + Expo plugin → `SA-2` `location` bridge topics → `SA-3` foreground streaming →
+`SA-4` background updates with buffer-and-flush → `SA-5` manifest-declared permission → `SA-6` document it.
+Plan: `2026-08-10-superapp-location.md`.
+
+> **Start this first, not last.** It is a different repo, it needs a super-app release, and background
+> location draws extra App Store / Play review with a written justification — the longest lead time anywhere
+> in this roadmap. `SA-1`..`SA-4` must be released before Milestone 2's geofence exit criteria can be
+> demonstrated on a device; nothing in Milestone 1 depends on them. `MA-5`/`MA-9` are unit-testable against
+> a mocked `PositionSource` in the meantime.
 
 ### Milestone 2 exit criteria (demoable)
 
-- Bind a vehicle + crew on B1 → team token issued; a second bind for the same vehicle is rejected (one active phone).
+- Launch the rally from the super app store; B1 lists the event's vehicles, picking one issues a team token, and no screen ever asks who the user is.
+- A second crew member joining the same vehicle lands in the *same* session with their own device row.
 - B2 stays locked until inside the start geofence (real GPS); B3 reveals the cipher on the WS start signal.
 - Each `TaskType` renders and submits; the backend validates + scores; the running score updates on B4's header.
-- Sensor tasks work on device: camera barcode (with manual fallback), accelerometer telematics, QR proximity, timed trivia, rest-lock.
+- Sensor tasks work on device: native QR scan via the bridge (with manual fallback), accelerometer telematics, QR proximity, timed trivia, rest-lock.
 - Finishing at the Pearl Bay geofence auto-locks the score and issues vouchers (B9); B10 sends an alert with live location.
 - The **same activity appears live on the organizer's A6 monitor and A7 leaderboard** from Milestone 1 (positions, completions, scores, alerts).
-- `go test -tags=integration` happy-path green; `npm test`/`npm run build` (MA) green.
+- `go test -tags=integration` happy-path green; `npm test`/`npm run build` (MA) green; the built zip loads from `file://` and is registered in the super app store.
 
 ---
 

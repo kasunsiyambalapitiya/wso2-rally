@@ -26,7 +26,7 @@ We build three components, following the `customer-portal` tech stack, standards
 |---|---|---|
 | **Backend** | Game engine, data, REST + WebSocket | Go |
 | **Web App** | Organizer portal + pavilion leaderboard | React + Oxygen UI + Asgardeo |
-| **Micro App** | In-car participant PWA (one phone per crew member) | React PWA + Web sensor APIs |
+| **Micro App** | In-car participant app (one phone per crew member) | React, embedded in the WSO2 Open Super App |
 
 ### Goals (this build)
 
@@ -39,8 +39,10 @@ We build three components, following the `customer-portal` tech stack, standards
 
 - Offline resilience on weak mobile data (best-effort only).
 - Hardened anti-cheat / GPS-spoofing prevention (server validates submissions, but trusts client GPS).
-- Strong participant identity. Last-4-digit matching stops a mis-tap, not a determined impersonator;
-  anyone holding the roster could join as a teammate. Acceptable for a team-building rally.
+- Strong *roster* mapping. Identity itself is now the super app's (an Asgardeo-authenticated WSO2
+  person), so impersonating a teammate is no longer the weak point. What is left is the join: the caller
+  is matched to a `crew_member` row by email, so a mistyped roster email locks a real participant out
+  rather than letting a stranger in. Acceptable — an organizer can fix a roster row in seconds.
 - Load-proven scale to 150 concurrent devices (design allows it; not load-tested).
 - Native mobile app, real BLE beacons, i18n, video transcoding, payment.
 
@@ -51,13 +53,13 @@ We build three components, following the `customer-portal` tech stack, standards
 | Decision | Choice | Consequence |
 |---|---|---|
 | Scope | MVP prototype | Happy-path first; hardening deferred |
-| Micro-app platform | React **PWA** + Web APIs | Geolocation, DeviceMotion, camera/barcode; installable |
-| Micro-app auth | **Vehicle + your name + last 4 digits of your phone** | Every member joins the same session on their own phone; the roster is the user directory, so a light identity check replaces "no per-user login" |
+| Micro-app platform | React static build **embedded in the [Open Super App](https://github.com/opensuperapp/opensuperapp)** | Distributed through the super app store, not installed; the host owns identity and the native scanner |
+| Micro-app auth | **Super app identity + pick your vehicle** | The host has already signed the person in; `POST /sessions/join` trades its Asgardeo token plus a `vehicleId` for the rally team token. No name picker and no phone digits — those existed only because there was no identity provider |
 | Phones per vehicle | **One per crew member, all in one session** | The car is the scoring unit; the one-active-phone rule moves down a level to one active phone per *member* |
 | Navigator | **Runtime role, self-serve takeover** | Exactly one navigator per session (DB-enforced); their phone is the car's GPS, and any member can take it over in one tap |
 | Task racing | **First submission wins for the vehicle** | Resolved atomically in SQL; a latecomer gets `409` naming the winner rather than overwriting the score |
-| Turn-by-turn | **Deep link to the Google Maps app** | Real navigation with no API key; the PWA keeps `react-leaflet` + OSM for the in-app course view |
-| BLE (Task 8) | **QR / geofence checkpoint fallback** | Web Bluetooth is unsupported on iOS Safari |
+| Turn-by-turn | **Deep link to the Google Maps app** (via `nativebridge.requestOpenUrl`) | Real navigation with no API key; the micro app keeps `react-leaflet` + OSM for the in-app course view |
+| BLE (Task 8) | **QR / geofence checkpoint fallback** | Web Bluetooth is unsupported on iOS Safari; the QR scan uses the super app's native scanner, since a `file://` WebView cannot open a camera |
 | Real-time | Backend **WebSocket** | Load-bearing, not decoration: the non-navigator phones learn about unlocks only over the socket |
 | Task engine | **Config-driven** task definitions | One task-type registry; one shared micro-app screen shell |
 | Vehicle problem state | New scope beyond proposal | `Vehicle.status` (ok / breakdown / device_issue) + organizer alert; surfaced on dashboard + live monitor |
@@ -66,12 +68,7 @@ We build three components, following the `customer-portal` tech stack, standards
 
 1. **Backend language** is Go, not Ballerina — we mirror the *modular structure* and *conventions*,
    not the language.
-2. **Micro app is a standalone PWA**, not embedded in the WSO2 Open Super App. There is no
-   `microapp-bridge` / `window.nativebridge`. Token comes from `POST /sessions/join` instead of the
-   native `getToken()`; sensors come from Web APIs instead of native bridges. Every other microapp
-   convention (zustand, axios client, `HashRouter`, `.dto.ts`/`.model.ts` split, `services/` with
-   TanStack `queryOptions`, build-time env, MUI + Oxygen) is retained.
-3. **Backend owns its own data** (MySQL). customer-portal proxies downstream WSO2 services; our
+2. **Backend owns its own data** (MySQL). customer-portal proxies downstream WSO2 services; our
    domain packages are `handler → service → repository` rather than `handler → downstream client`.
 
 ---
@@ -87,7 +84,7 @@ We build three components, following the `customer-portal` tech stack, standards
                               │  WS    (monitor, leaderboard)
                  ┌────────────▼──────────────┐        ┌───────────────┐
   navigator  ───▶│      Go Backend           │───────▶│     MySQL     │
-  phone (PWA)    │  chi REST :8080           │        └───────────────┘
+  phone (in super│  chi REST :8080           │        └───────────────┘
   location+motion│  WebSocket hub /ws        │
                  │  task-engine · scoring    │        ┌───────────────┐
                  │  geofence · realtime      │───────▶│ Object store  │ (debrief videos)
@@ -149,8 +146,9 @@ rally2026/
 ├── webapp/                   React organizer portal  (pnpm, mirrors customer-portal/webapp)
 │   ├── public/config.js.example      runtime window.config (RALLY_* keys)
 │   └── src/{api,components,config,constants,context,features,hooks,layouts,providers,types,utils}
-└── microapp/                 React PWA  (npm, mirrors customer-portal/microapp minus native bridge)
-    ├── .env.example                  build-time RALLY_* env
+└── microapp/                 React, embedded in the Open Super App (npm, mirrors customer-portal/microapp)
+    ├── microapp.json                 super app store manifest (appId, clientId, versions[])
+    ├── public/config.js.example      runtime window.config (BACKEND_BASE_URL, IS_MICROAPP, …)
     └── src/{components,config,context,pages,services,store,theme,types,utils}
 ```
 
@@ -172,9 +170,11 @@ Entities (MySQL tables; all ids are 32-char lowercase hex `CHAR(32)` to match cu
   parameters (cipher options, arithmetic operands, barcode payload, radius, timer seconds, gate spec, …).
 - **vehicle** — `id, event_id, code(PKT-001), team_name, vehicle_type(SUV|Sedan|Van|…), contact_number,
   route_id, status(ok|breakdown|device_issue)`.
-- **crew_member** (node) — `id, vehicle_id, name, phone_number, role(navigator|node), origin_country`.
-  `phone_number` is **NOT NULL**: its last four digits are what a member types to prove who they are,
-  so a member without one could never join. `role` is roster metadata (who is expected to drive); the
+- **crew_member** (node) — `id, vehicle_id, name, email, phone_number, role(navigator|node), origin_country`.
+  `email` is what a joining phone is matched on: the super app has already authenticated the person, so
+  the roster only has to say which car that person is in. It is **NOT NULL** for the same reason
+  `phone_number` used to be — a member without one could never join. `phone_number` stays, now purely so
+  organizers can call a car that goes quiet. `role` is roster metadata (who is expected to drive); the
   *active* navigator lives on `session_device`.
 - **team_session** — `id, event_id, vehicle_id, bound_at, started_at, finished_at,
   current_waypoint_id, total_score, status(bound|active|finished)`. One live session per vehicle,
@@ -280,13 +280,20 @@ REST style mirrors customer-portal: resource paths, `POST /…/search` for lists
 - Read-through for run views: `GET /events/{id}/monitor` (snapshot) · `GET /events/{id}/leaderboard`
 
 **Participant (team token):**
-- `POST /sessions/join` — `{ vehicleId, crewMemberId, phoneLast4 }` → `{ teamToken, session, device, crew }`.
-  The only unauthenticated write. The first member to call it creates the session and becomes navigator;
-  the rest join that same session. Named *join*, not *bind*, because it is no longer exclusive — "bind"
-  carried the one-phone-per-vehicle rule that this design deliberately removes.
+- `POST /sessions/join` — `{ vehicleId }` with the **super app's Asgardeo token** in `Authorization` →
+  `{ teamToken, session, device, crew }`. The one endpoint that takes an organizer-issued token and
+  returns a team one; everything else under `/sessions/me/*` takes the team token. The crew member is
+  resolved from the caller's email, so the phone answers "which car am I in", never "who am I". The
+  first member to call it creates the session and becomes navigator; the rest join that same session.
+  Named *join*, not *bind*, because it is no longer exclusive — "bind" carried the one-phone-per-vehicle
+  rule that this design deliberately removes.
+  `403` if the caller is not on that vehicle's roster, `409` if the event is not published, `404` for an
+  unknown vehicle.
 - `GET /sessions/me` — session state, assigned route, cipher (after 09:00), next waypoint, the full
   `crew` with who is navigating, and `you` (your own device + crew member)
-- `POST /sessions/me/location` — **navigator only, else `403`** — `{ lat, lng, accuracy, ts }` →
+- `POST /sessions/me/location` — **navigator only, else `403`** — `{ lat, lng, accuracy, ts? }` (`ts` is the
+  ISO 8601 moment the fix was *taken*; omitted means "now", so a live ping is unchanged and a buffered flush
+  from the super app is judged against real elapsed time) →
   `{ unlockedTasks, events:[geofence|rest|trivia|arrival] }`
 - `POST /sessions/me/navigator` — take over navigation from whoever holds it → `{ crew }`, and
   broadcasts `navigator_changed`
@@ -320,13 +327,20 @@ REST style mirrors customer-portal: resource paths, `POST /…/search` for lists
   sends `Authorization: Bearer <idToken>` + `x-user-id-token`. Backend middleware validates via JWKS when
   `TOKEN_VALIDATOR_ENABLED` (Choreo), else decode-only (local). Claims → `UserInfo{Email,UserID,Groups}`
   in `context.Context`. `CheckRoles(required, groups)` gates organizer/admin actions. Group→role config from env.
-- **Participant.** No Asgardeo. `POST /sessions/join` verifies the event is published, the crew member
-  belongs to the vehicle, and the last four digits of the phone number on their roster row match what
-  they typed. It then finds-or-creates the vehicle's session, upserts a `session_device` row, and mints a
-  signed team JWT (`iss=rally-team`, `sub=sessionId`, plus `deviceId` and `crewMemberId`) stored in the
-  micro app's localStorage and sent as `Authorization: Bearer <teamToken>`. Team middleware validates
-  signature + session status and resolves the device, so a handler can tell *which* phone is calling.
-  Distinguished from organizer tokens by `iss`.
+- **Participant.** The micro app is embedded in the super app, so the phone already holds an Asgardeo
+  access token minted for the rally's `clientId` — it asks for it over the native bridge
+  (`nativebridge.requestToken()`), never through a browser redirect. `POST /sessions/join` takes that
+  token plus a `vehicleId`, verifies the event is published and that the caller's email is on that
+  vehicle's roster, then finds-or-creates the vehicle's session, upserts a `session_device` row, and mints
+  a signed team JWT (`iss=rally-team`, `sub=sessionId`, plus `deviceId` and `crewMemberId`). The team
+  token is kept in the super app's **secure store** — not `localStorage`, which would outlive the event on
+  a shared phone — and sent as `Authorization: Bearer <teamToken>`. Team middleware validates signature +
+  session status and resolves the device, so a handler can tell *which* phone is calling. Distinguished
+  from organizer tokens by `iss`.
+- **⚠ Consequence for the organizer surface.** Every participant now holds a valid Asgardeo token, which
+  auth middleware classifies as an *organizer* identity. `RequireOrganizer` therefore has to gate on the
+  organizer group, not merely on a decodable token — otherwise a crew member could read the whole
+  monitor. Admin-only actions were already group-gated; the read surface was not.
 - **One active phone per member, not per vehicle.** The old rule stopped a second phone from binding a
   vehicle. It now applies one level down: `session_device` is unique on `(session_id, crew_member_id)`,
   so Nimal cannot hold two phones, while all four of the crew can hold one each. Racing between a car's
@@ -337,7 +351,7 @@ REST style mirrors customer-portal: resource paths, `POST /…/search` for lists
 
 ---
 
-## 9. Geofencing & sensors (PWA)
+## 9. Geofencing & sensors (inside the super app's WebView)
 
 - **Geolocation** (`navigator.geolocation.watchPosition`) drives start-grid validation (B2), precision radius
   (Task 5), rest lock (Task 12), geofence trivia (Task 14), and arrival auto-logoff (B9). Backend does the
@@ -346,8 +360,10 @@ REST style mirrors customer-portal: resource paths, `POST /…/search` for lists
 - **DeviceMotion** for eco-driving telematics (Task 4), again navigator-only — it is measuring the car, not
   a passenger. iOS requires `DeviceMotionEvent.requestPermission()` on a user gesture, so it is requested
   when a phone takes over navigation rather than at task start.
-- **Camera** via `getUserMedia` + `BarcodeDetector` (Chrome/Android). iOS Safari lacks `BarcodeDetector` →
-  fall back to `@zxing/browser`, and manual code entry is always available (wireframe B5).
+- **Camera → the super app's native scanner.** `nativebridge.requestQr()` returns the decoded string; the
+  host takes over the screen for the scan. There is no web camera path: `getUserMedia` is blocked from the
+  `file://` origin the micro app is served from, which also rules out `BarcodeDetector` and
+  `@zxing/browser`. Manual code entry stays available (wireframe B5) and is now the only fallback.
 - **BLE (Task 8)** → QR checkpoint (scan a QR placed at the beacon location) or a geofence checkpoint.
 - **Maps** — `react-leaflet` + OpenStreetMap tiles (no API key), for organizer route editing/monitor and the
   micro-app route view.
@@ -355,8 +371,22 @@ REST style mirrors customer-portal: resource paths, `POST /…/search` for lists
   to the installed app: `https://www.google.com/maps/dir/?api=1&destination=<lat>,<lng>&travelmode=driving`.
   Real voice navigation with no API key, no billing, and no new dependency; the leaflet map stays for course
   context (geofence circles, waypoint order) that Google Maps cannot show.
-- **PWA** — `vite-plugin-pwa` adds a manifest + service worker for install + basic asset caching. Screen wake
-  lock (`navigator.wakeLock`) keeps the in-car screen on.
+- **Packaging** — no PWA. The micro app is a static build, zipped and registered in the super app store
+  through `microapp.json`; the host downloads, extracts and loads it in a `WebView` from a `file://` path.
+  Hence `base:"./"` and `HashRouter`, and no service worker. Keeping the screen awake is the host's job for
+  a `fullscreen` micro app — `navigator.wakeLock` is not dependable in this WebView.
+
+- **Location arrives over a new bridge topic**, not from `navigator.geolocation`. The super app grants the
+  WebView no location today, so we are adding the capability there: native watches the position and pushes
+  `{lat, lng, accuracy, ts, buffered?}` fixes into the micro app, buffering and flushing them across a spell
+  in the background. It is a **subscription** (`requestLocationUpdates` → many `resolveLocationUpdate` →
+  `requestStopLocationUpdates`) and it is gated on `microapp.json` declaring
+  `requiredPermissions: ["location"]`. Chosen over WebView passthrough because a `file://` page is not a
+  secure origin on iOS and because a suspended WebView runs no JS — and the rally's own route screen
+  deep-links to Google Maps, so the driver leaves the app by design. Plan:
+  `docs/plans/2026-08-10-superapp-location.md`. Consequence for this backend: `POST /sessions/me/location`
+  takes an optional client `ts` so a flushed fix is judged against when it was taken rather than when it
+  arrived (`BE-20`).
 
 ---
 
@@ -372,9 +402,11 @@ REST style mirrors customer-portal: resource paths, `POST /…/search` for lists
 **Micro app** — React 19, Vite, TS, MUI + `@wso2/oxygen-ui`, `@tanstack/react-query`, `react-router-dom`
 (`HashRouter`), **axios** client with request/response interceptors, **zustand** store, **formik + yup**,
 `dayjs`, `.dto.ts`/`.model.ts` split with `toX(dto): Model` mappers in `services/`, services export TanStack
-`queryOptions`/`mutationOptions`, build-time env (`RALLY_*`, `import.meta.env`), `vite-tsconfig-paths`, prettier
-(`printWidth 120`). npm. **Replaces** `microapp-bridge` with a `sensors/` module (geolocation, motion, camera,
-qr, wakelock) and `services/session.ts` (bind + team token) in place of the native `auth.ts`.
+`queryOptions`/`mutationOptions`, runtime `window.config` (`./config.js`, including `IS_MICROAPP`),
+`vite-tsconfig-paths`, prettier (`printWidth 120`). npm. `utils/bridge.ts` + `services/auth.ts` speak to
+`window.nativebridge` exactly as customer-portal does; `services/session.ts` is the one rally addition,
+trading the super app's token for the team token. `sensors/` is thin: a pluggable position source, motion,
+and a `requestQr` wrapper.
 
 **Both** send `Authorization: Bearer <token>`; on 401 refresh/redirect (organizer → Asgardeo sign-in;
 participant → re-bind screen). Apache-2.0 header on every source file (year 2026).
@@ -420,7 +452,8 @@ Web app (organizer, desktop): **A1** Events dashboard (edit active only; View fo
 **A4** Task library (15 tasks, per-row Edit) · **A5** Vehicles & crews (contact, type; icon-only CSV
 import/export) · **A6** Live monitor (WebSocket) · **A7** Leaderboard (pavilion present mode) · **A8** Video debrief.
 
-Micro app (in-car PWA, mobile): **B1** Initialization (vehicle + crew dropdowns) · **B2** Geofence lock ·
+Micro app (in-car, embedded, mobile): **B1** Initialization (pick your vehicle — identity comes from the
+super app) · **B2** Geofence lock ·
 **B3** 09:00 sync + cipher reveal · **B4** Route / next leg · **B5** Camera barcode · **B6** Accelerometer
 eco-drive · **B7** Input / multi-select shell · **B8** Rest-stop lock · **B9** Arrival + vouchers ·
 **B10** Report vehicle issue (breakdown / device / other, with live location). All B-screens
@@ -456,11 +489,12 @@ show SCORE / DONE in the header (hidden on B1).
 
 1. **Backend foundation** — repo scaffold, config, `store` + migrations, `httpx`, `authorization` middleware,
    `GET /health`, `internal/geo`.
-2. **Backend domain** — events → routes/waypoints → tasks → vehicles/crew → sessions/bind → task-engine +
+2. **Backend domain** — events → routes/waypoints → tasks → vehicles/crew → sessions/join → task-engine +
    scoring → alerts → debrief; `realtime` hub last.
 3. **Web app** — scaffold (mirror webapp), Asgardeo, config, layouts/guards; then features A1–A5 (setup),
    then A6/A7 (WebSocket run views), then A8.
-4. **Micro app** — scaffold (mirror microapp minus bridge), `sensors/` + `services/session.ts`, bind (B1),
+4. **Micro app** — scaffold (mirror microapp, including the bridge), `utils/bridge.ts` + `services/auth.ts`
+   + `services/session.ts`, join (B1),
    geofence lock (B2), start/cipher (B3), route (B4), the task shell + the sensor task variants (B5–B8),
    arrival + vouchers (B9).
 5. **Integration + happy-path E2E**, then `openapi.yaml` / `asyncapi.yaml` / `.choreo/component.yaml`.
