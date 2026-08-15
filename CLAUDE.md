@@ -181,6 +181,15 @@ Backend:
 - Lists are `POST /<resource>/search` with `{offset, limit, filters}` — default 0/20, max limit 100.
 - `GET /health` is unauthenticated and skipped by auth middleware.
 - SQL columns `snake_case`; enum string values `snake_case`; Go identifiers `CamelCase`.
+- **A guard that cannot judge must deny, not wave through.** The anti-teleport check used to accept any fix
+  when the elapsed time was zero or negative, reasoning that distance is unjudgeable without time. That is
+  backwards — nothing crosses real distance in no time, so "same instant" is the strongest evidence of a
+  teleport there is. It now accepts only a near-standstill (`sameInstantToleranceM`). The same fail-open
+  instinct is what made `TIMESTAMP` rounding dangerous below.
+- **A migration must survive the data that is already there.** `ADD COLUMN NOT NULL DEFAULT <constant>` plus
+  `ADD UNIQUE KEY` in one statement collides the moment two existing rows share the parent — add the column,
+  backfill values unique by construction, add the index, then drop the default so a forgetful INSERT fails
+  loudly. `0003` is the worked example.
 - **A timestamp you compute with needs `TIMESTAMP(3)`.** A bare `TIMESTAMP` has no fractional seconds and
   MySQL *rounds* on write, so a value can read back half a second in the future — which is how the
   anti-teleport check on `last_ping_at` came to accept every jump. Display and audit columns stay at

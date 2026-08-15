@@ -767,3 +767,47 @@ func TestService_Ping_MarksThePhoneAsSharing(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, state.You.IsSharing(time.Now().UTC()), "the phone that pinged is sharing")
 }
+
+// isPlausibleMove used to wave a fix through whenever the elapsed time was zero
+// or negative, on the reasoning that distance cannot be judged without time.
+// That is backwards: nothing crosses real distance in no time, so "same
+// instant" is the *strongest* evidence of a teleport, not an excuse to accept
+// one. The old escape hatch also made the ping test above flaky — two pings
+// inside one clock tick would finish the run.
+func TestIsPlausibleMove_SameInstantAcceptsOnlyAStandstill(t *testing.T) {
+	now := time.Date(2027, 2, 13, 9, 30, 0, 0, time.UTC)
+	lat, lng := 6.9000, 79.9200
+	atStartLine := Session{LastLat: &lat, LastLng: &lng, LastPingAt: &now}
+
+	tests := map[string]struct {
+		position LatLng
+		want     bool
+	}{
+		// Two reports of one position, disagreeing by GPS jitter.
+		"a metre away":      {LatLng{Lat: 6.90001, Lng: 79.92001}, true},
+		"the finish line":   {LatLng{Lat: 6.8480, Lng: 79.9280}, false},
+		"a kilometre north": {LatLng{Lat: 6.9090, Lng: 79.9200}, false},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			require.Equal(t, tt.want, isPlausibleMove(atStartLine, tt.position, now))
+		})
+	}
+}
+
+// A clock that steps backwards must not turn into a licence to teleport either.
+func TestIsPlausibleMove_BackwardsClockStillRejectsAJump(t *testing.T) {
+	pinged := time.Date(2027, 2, 13, 9, 30, 0, 0, time.UTC)
+	lat, lng := 6.9000, 79.9200
+	session := Session{LastLat: &lat, LastLng: &lng, LastPingAt: &pinged}
+
+	earlier := pinged.Add(-2 * time.Second)
+
+	require.False(t, isPlausibleMove(session, LatLng{Lat: 6.8480, Lng: 79.9280}, earlier))
+}
+
+// The first fix of a run has nothing to compare against and must be accepted,
+// or no rally could ever start.
+func TestIsPlausibleMove_FirstFixIsAlwaysAccepted(t *testing.T) {
+	require.True(t, isPlausibleMove(Session{}, LatLng{Lat: 6.9, Lng: 79.92}, time.Now()))
+}
