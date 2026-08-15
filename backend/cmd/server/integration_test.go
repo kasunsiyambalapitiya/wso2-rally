@@ -259,8 +259,8 @@ func TestHappyPath(t *testing.T) {
 		"contactNumber": "+94771234567",
 		"routeId": "`+route.ID+`",
 		"crew": [
-			{"name":"Nimal","phoneNumber":"0771234567","role":"navigator"},
-			{"name":"Sunil","phoneNumber":"0777654321","role":"node"}
+			{"name":"Nimal","email":"nimal@wso2.com","phoneNumber":"0771234567","role":"navigator"},
+			{"name":"Sunil","email":"sunil@wso2.com","phoneNumber":"0777654321","role":"node"}
 		]
 	}`), http.StatusCreated)
 	require.Len(t, vehicle.Crew, 2)
@@ -476,7 +476,7 @@ func TestJoinBeforePublishIsRejected(t *testing.T) {
 		`{"code":"PKT-001","teamName":"Team","crew":[{"name":"Nimal","email":"nimal@wso2.com","phoneNumber":"0771234567"}]}`),
 		http.StatusCreated)
 
-	rec := r.do(http.MethodPost, "/sessions/join",
+	rec := r.asCrewMember(http.MethodPost, "/sessions/join",
 		`{"vehicleId":"`+vehicle.ID+`"}`, "nimal@wso2.com")
 
 	require.Equal(t, http.StatusConflict, rec.Code, "body: %s", rec.Body.String())
@@ -496,8 +496,8 @@ func TestVehicleCSVRoundTrip(t *testing.T) {
 	// Crew entries are "Name:phone": the number is mandatory because its last
 	// four digits are how that member joins their car.
 	body, contentType := csvUpload(t, "code,team_name,vehicle_type,contact_number,route_name,crew_names\n"+
-		"PKT-001,Packet Pioneers,SUV,+94771234567,Inland,Nimal:0771234567|Sunil:0777654321\n"+
-		"PKT-002,Byte Brigade,Van,+94777654321,Inland,Kamala:0779876543\n")
+		"PKT-001,Packet Pioneers,SUV,+94771234567,Inland,Nimal:nimal@wso2.com:0771234567|Sunil:sunil@wso2.com:0777654321\n"+
+		"PKT-002,Byte Brigade,Van,+94777654321,Inland,Kamala:kamala@wso2.com:0779876543\n")
 
 	req := httptest.NewRequest(http.MethodPost, "/events/"+event.ID+"/vehicles/import", body)
 	req.Header.Set("Authorization", "Bearer "+r.organizer)
@@ -513,7 +513,7 @@ func TestVehicleCSVRoundTrip(t *testing.T) {
 	exported := r.asOrganizer(http.MethodGet, "/events/"+event.ID+"/vehicles/export", "")
 	require.Equal(t, http.StatusOK, exported.Code)
 	require.Contains(t, exported.Body.String(),
-		"PKT-001,Packet Pioneers,SUV,+94771234567,Inland,Nimal:0771234567|Sunil:0777654321")
+		"PKT-001,Packet Pioneers,SUV,+94771234567,Inland,Nimal:nimal@wso2.com:0771234567|Sunil:sunil@wso2.com:0777654321")
 }
 
 // csvUpload builds the multipart body the web app's import control sends.

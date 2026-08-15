@@ -283,6 +283,12 @@ in-memory fake and the SQL is tested separately against a real MySQL.
   `DELETE /vehicles/{id}` checks `team_session` first and returns 409 if the car
   has any. The delete exists to fix provisioning, never to retire a car
   mid-rally.
+- **`isPlausibleMove` denies when it cannot judge.** With zero or negative
+  elapsed time — two fixes stamped the same instant, or a clock that stepped
+  backwards — it accepts only a fix that has barely moved
+  (`sameInstantToleranceM`, one second of travel). It used to accept *any*
+  distance in that case, which both hid a real teleport and made the ping test
+  flaky whenever two pings landed inside one clock tick.
 - **A timestamp you do arithmetic on needs `TIMESTAMP(3)`.** A bare `TIMESTAMP`
   has no fractional seconds and MySQL *rounds* to the nearest second on write,
   so a value can come back up to half a second in the **future**. That is
