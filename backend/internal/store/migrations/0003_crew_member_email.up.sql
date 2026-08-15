@@ -16,10 +16,31 @@
 -- Unique per vehicle rather than globally: one person may legitimately appear on
 -- two different events' rosters, but never twice in the same car.
 --
--- No backfill: no event has run, so there are no rows to preserve. A deployment
--- that somehow has crew rows gets the empty-string default, which matches
--- nothing and therefore denies rather than admits.
+-- Four statements, not one, and the order matters.
+--
+-- Adding the column with a constant default *and* the unique index in one
+-- statement fails on any table that already holds two crew members for one
+-- vehicle: both rows take the same default and collide. So the column arrives
+-- with a temporary default, the backfill gives every existing row a value unique
+-- by construction (its own id) in the reserved `.invalid` TLD (RFC 2606) that no
+-- identity provider can ever issue — such a row denies a join rather than
+-- admitting the wrong person, and reads as obviously unfinished in the
+-- organizer's crew editor — and only then is the index added.
+--
+-- The default is dropped at the end on purpose. Left in place, an INSERT that
+-- forgot the column would silently store '' and fail much later, on the *second*
+-- member of some vehicle, as a duplicate-key error naming an empty string. With
+-- no default it fails immediately and says which column is missing.
 
 ALTER TABLE crew_member
-  ADD COLUMN email VARCHAR(320) NOT NULL DEFAULT '' AFTER name,
+  ADD COLUMN email VARCHAR(320) NOT NULL DEFAULT '' AFTER name;
+
+UPDATE crew_member
+SET email = CONCAT('unset-', id, '@invalid')
+WHERE email = '';
+
+ALTER TABLE crew_member
   ADD UNIQUE KEY uq_crew_member_email (vehicle_id, email);
+
+ALTER TABLE crew_member
+  ALTER COLUMN email DROP DEFAULT;

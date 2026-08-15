@@ -549,6 +549,14 @@ func (s *Service) waypointsFor(ctx context.Context, vehicleID string) ([]Waypoin
 // 60 km out.
 const maxPlausibleSpeedMPS = 60.0
 
+// sameInstantToleranceM is how far apart two fixes stamped the same instant may
+// be and still be believed: one second of travel at the ceiling above.
+//
+// Two reports of one position legitimately disagree by GPS jitter, so the
+// tolerance cannot be zero. A kilometre apart in no time is a teleport whatever
+// the timestamps claim.
+const sameInstantToleranceM = maxPlausibleSpeedMPS
+
 // isPlausibleMove reports whether the car could have travelled from its last
 // known fix to this one in the elapsed time.
 //
@@ -559,14 +567,21 @@ func isPlausibleMove(session Session, position LatLng, now time.Time) bool {
 		return true
 	}
 
+	metres := geo.HaversineMeters(*session.LastLat, *session.LastLng, position.Lat, position.Lng)
+
 	elapsed := now.Sub(*session.LastPingAt).Seconds()
 	if elapsed <= 0 {
-		// Same instant, or a clock that went backwards. Distance cannot be
-		// judged, so do not accuse the crew of teleporting.
-		return true
+		// Zero or negative elapsed time: two fixes stamped the same instant, or
+		// a clock that stepped backwards. This used to accept the fix on the
+		// grounds that distance cannot be judged without time — which is
+		// backwards. Nothing crosses real distance in no time, so "same instant"
+		// is the strongest evidence of a teleport there is, and the only
+		// credible fix is one that has barely moved.
+		//
+		// A genuine backwards clock step therefore costs one dropped fix out of
+		// a stream of them, which is the cheaper mistake.
+		return metres <= sameInstantToleranceM
 	}
-
-	metres := geo.HaversineMeters(*session.LastLat, *session.LastLng, position.Lat, position.Lng)
 
 	return metres/elapsed <= maxPlausibleSpeedMPS
 }
