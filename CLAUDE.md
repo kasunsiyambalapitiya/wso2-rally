@@ -39,7 +39,12 @@ Reference implementation for all conventions: `wso2-open-operations/cs-tools/app
   slice (backend organizer API + whole web app). Milestone 2 = in-car slice (game runtime + micro app).
 - `BE-4` creates the **entire** schema (all tables) in Milestone 1 — do not add per-milestone migrations for
   tables the spec already lists. That rule is about not splitting table creation across milestones; a
-  *corrective* migration is still fine, and `0002` is one. `BE-5`/`BE-6` also build the team-token path in M1
+  *corrective* migration is still fine. While nothing holds data worth keeping, though, prefer **folding a
+  correction back into `0001`** and re-creating local databases: `0002` (`TIMESTAMP(3)`) and `0003`
+  (`crew_member.email`) were squashed away exactly that way. Start versioning for real at the first
+  deployment with data you would be sad to lose — `golang-migrate` does not checksum applied files, so a
+  database already past a version never notices that file changing underneath it. `BE-5`/`BE-6` also build
+  the team-token path in M1
   though it is only exercised in M2. `BE-11`, `BE-16`, `BE-17` and the integration tests are deliberately
   split across milestones.
 - Use `superpowers:subagent-driven-development` or `superpowers:executing-plans` to execute a plan.
@@ -189,7 +194,8 @@ Backend:
 - **A migration must survive the data that is already there.** `ADD COLUMN NOT NULL DEFAULT <constant>` plus
   `ADD UNIQUE KEY` in one statement collides the moment two existing rows share the parent — add the column,
   backfill values unique by construction, add the index, then drop the default so a forgetful INSERT fails
-  loudly. `0003` is the worked example.
+  loudly. That bit us on a `crew_member.email` migration since squashed into `0001`; it is the shape to reach
+  for once the schema is live and folding back is no longer an option.
 - **A timestamp you compute with needs `TIMESTAMP(3)`.** A bare `TIMESTAMP` has no fractional seconds and
   MySQL *rounds* on write, so a value can read back half a second in the future — which is how the
   anti-teleport check on `last_ping_at` came to accept every jump. Display and audit columns stay at

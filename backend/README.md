@@ -290,7 +290,8 @@ in-memory fake and the SQL is tested separately against a real MySQL.
   invisible for a display column and poison for a computed one: it silently
   disarmed the anti-teleport check on `last_ping_at` (a negative elapsed time
   reads as a backwards clock, which accepts any jump) and rounded two crews
-  finishing 300 ms apart into a leaderboard dead heat. `0002` fixes those two;
+  finishing 300 ms apart into a leaderboard dead heat. `team_session.finished_at`
+  and `last_ping_at` carry `(3)` for those two reasons;
   the rest are display or audit values and stay at second resolution.
 - **Broadcasts are best-effort.** A subscriber that stops reading loses
   messages rather than blocking the crew whose submission produced them; the
