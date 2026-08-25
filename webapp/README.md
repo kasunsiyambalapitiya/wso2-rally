@@ -178,9 +178,10 @@ The Choreo gateway owns TLS, CORS and organizer token validation.
 ## Architecture notes
 
 - **`useAuthApiClient`** is the single path to the backend. It prefixes
-  `RALLY_BACKEND_BASE_URL`, sends both `Authorization: Bearer <idToken>` and
-  `x-user-id-token: <idToken>`, and raises any non-2xx as an `ApiError` carrying
-  the backend's `{"message": …}`. Callers never check `response.ok`.
+  `RALLY_BACKEND_BASE_URL`, sends `Authorization: Bearer <idToken>`, and raises
+  any non-2xx as an `ApiError` carrying the backend's `{"message": …}`. Callers
+  never check `response.ok`. The token goes in that one header only — see
+  `CLAUDE.md` on why `x-user-id-token` was dropped.
 - **Query keys** come from `ApiQueryKeys` in `constants/apiConstants.ts`, so a
   mutation invalidates exactly what it touched.
 - **Path aliases** must be declared in *both* `vite.config.ts` and

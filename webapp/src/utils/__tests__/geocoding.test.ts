@@ -145,7 +145,6 @@ describe("searchPlace", () => {
     const init = fetchMock.mock.calls[0][1] as RequestInit | undefined;
     const headers = new Headers(init?.headers);
     expect(headers.get("Authorization")).toBeNull();
-    expect(headers.get("x-user-id-token")).toBeNull();
   });
 
   it("asks for structured address details, which shortPlaceName needs", async () => {
