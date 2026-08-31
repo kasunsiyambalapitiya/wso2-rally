@@ -21,6 +21,51 @@ export interface ApiConfig {
   backendBaseUrl: string;
 }
 
+/** Hosts where plain http carries no network to observe it. */
+const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+
+/**
+ * Rejects a base URL that is unsafe to send an organizer's id token to.
+ *
+ * This value becomes the `fetch` target for every authenticated call, so a
+ * deployment typo is a credential leak rather than a broken page: plain `http`
+ * to anything but loopback puts the token on the wire in cleartext. Credentials,
+ * a query string or a fragment mean the value is not a bare origin, and
+ * appending a path to it would produce a URL nobody intended.
+ *
+ * @param {string} raw - The configured value.
+ * @returns {URL} The parsed URL, once it is known to be safe.
+ */
+function parseBackendBaseUrl(raw: string): URL {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(
+      `Api Config Error: RALLY_BACKEND_BASE_URL must be an absolute URL, got "${raw}"`,
+    );
+  }
+
+  if (url.protocol !== "https:" && !LOOPBACK_HOSTNAMES.has(url.hostname)) {
+    throw new Error(
+      "Api Config Error: RALLY_BACKEND_BASE_URL must use https outside loopback; " +
+        `an organizer token would otherwise travel in cleartext, got "${raw}"`,
+    );
+  }
+  if (url.username || url.password) {
+    throw new Error(
+      "Api Config Error: RALLY_BACKEND_BASE_URL must not carry credentials",
+    );
+  }
+  if (url.search || url.hash) {
+    throw new Error(
+      "Api Config Error: RALLY_BACKEND_BASE_URL must not carry a query string or fragment",
+    );
+  }
+
+  return url;
+}
+
 /**
  * Reads the backend base URL from the runtime config.
  *
@@ -36,6 +81,7 @@ export function getApiConfig(): ApiConfig {
       "Api Config Error: Missing required configuration: RALLY_BACKEND_BASE_URL",
     );
   }
+  parseBackendBaseUrl(backendBaseUrl);
 
   return { backendBaseUrl: backendBaseUrl.replace(/\/+$/, "") };
 }

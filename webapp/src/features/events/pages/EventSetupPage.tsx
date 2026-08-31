@@ -16,7 +16,15 @@
 
 import { useEffect, type JSX } from "react";
 import { useNavigate, useParams } from "react-router";
-import { Box, Chip, IconButton, LinearProgress, Typography } from "@wso2/oxygen-ui";
+import {
+  Alert,
+  Box,
+  Button,
+  Chip,
+  IconButton,
+  LinearProgress,
+  Typography,
+} from "@wso2/oxygen-ui";
 import { ArrowLeft } from "@wso2/oxygen-ui-icons-react";
 import EventForm from "@features/events/components/EventForm";
 import { useGetEvent } from "@features/events/api/useGetEvent";
@@ -47,7 +55,9 @@ export default function EventSetupPage(): JSX.Element {
   const { showError } = useErrorBanner();
   const { showSuccess } = useSuccessBanner();
 
-  const { data: event, error, isLoading } = useGetEvent(eventId);
+  const { data: event, error, isLoading, refetch } = useGetEvent(eventId);
+  // An existing event that failed to load for any reason but "gone".
+  const loadFailed = Boolean(eventId && error && !isNotFoundError(error));
   const createEvent = useCreateEvent();
   const updateEvent = useUpdateEvent();
   const publishEvent = usePublishEvent();
@@ -122,6 +132,20 @@ export default function EventSetupPage(): JSX.Element {
 
       {isLoading ? (
         <LinearProgress color="warning" />
+      ) : loadFailed ? (
+        // Never an editable form over an event we could not read. The fields
+        // would start empty, and saving would PATCH those blanks over the
+        // stored boundaries and cipher.
+        <Alert
+          action={
+            <Button color="inherit" onClick={() => void refetch()} size="small">
+              Retry
+            </Button>
+          }
+          severity="error"
+          >
+          Could not load this event. Nothing has been changed.
+        </Alert>
       ) : (
         <EventForm
           key={event?.id ?? "new"}

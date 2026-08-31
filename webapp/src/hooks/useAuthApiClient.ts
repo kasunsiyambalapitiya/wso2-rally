@@ -97,19 +97,29 @@ export interface AuthApiClient {
 export function useAuthApiClient(): AuthApiClient {
   const { getIdToken, signIn } = useAsgardeo();
 
-  // Redirecting is a navigation, so this resolves a promise that never settles:
-  // callers must not fall through to an error page while the browser leaves.
+  // Redirecting is a navigation, so a successful sign-in resolves a promise
+  // that never settles: callers must not fall through to an error page while
+  // the browser is leaving.
+  //
+  // A *failed* signIn() is the opposite case. No navigation is coming, so
+  // hanging would strand the caller with no page and no error — the rejection
+  // has to propagate instead.
   const redirectToSignIn = useCallback((): Promise<Response> => {
-    if (!signInInFlight) {
-      signInInFlight = true;
-      // Best effort — reset only in case the redirect itself rejects, so a
-      // later attempt can retry.
-      void Promise.resolve(signIn()).finally(() => {
-        signInInFlight = false;
-      });
+    if (signInInFlight) {
+      return new Promise<Response>(() => {});
     }
 
-    return new Promise<Response>(() => {});
+    signInInFlight = true;
+
+    return Promise.resolve(signIn()).then(
+      // Navigation is under way; never settle.
+      () => new Promise<Response>(() => {}),
+      (error: unknown) => {
+        // Reset so a later attempt can retry the redirect.
+        signInInFlight = false;
+        throw error;
+      },
+    );
   }, [signIn]);
 
   const attemptFetch = useCallback(

@@ -60,9 +60,13 @@ const queryClient: QueryClient = new QueryClient({
       refetchOnReconnect: false,
       refetchOnMount: true,
     },
+    // Reads retry; writes do not. A 502 or 503 says the gateway could not
+    // reach the service or could not relay its answer — not that the write was
+    // rejected. The backend mints a fresh id per insert and takes no
+    // idempotency key, so retrying a create that actually succeeded produces a
+    // second event. Give a write a retry only where it can prove it is safe.
     mutations: {
-      retry: shouldRetry,
-      retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+      retry: false,
     },
   },
 });
@@ -74,6 +78,18 @@ export default function AppWithConfig(): JSX.Element {
       clientId={authConfig.clientId}
       afterSignInUrl={authConfig.signInRedirectURL}
       afterSignOutUrl={authConfig.signOutRedirectURL}
+      // Keeps the organizer signed in for the length of an event; without it
+      // they start collecting 401s mid-rally.
+      //
+      // The suppression is the SDK's, not ours: @asgardeo/react 0.25.6 honours
+      // this at runtime — dist/index.js resolves
+      // `tokenLifecycle?.refreshToken?.autoRefresh ?? config?.periodicTokenRefresh`
+      // — but its published dist/index.d.ts declares no token-refresh option at
+      // all, so there is nothing to type against.
+      //
+      // On the next SDK bump: if the types have caught up, prefer the newer
+      // `tokenLifecycle.refreshToken.autoRefresh` key, which is checked first,
+      // and delete this.
       // eslint-disable-next-line @typescript-eslint/ban-ts-comment
       // @ts-ignore
       periodicTokenRefresh

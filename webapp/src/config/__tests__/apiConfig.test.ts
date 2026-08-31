@@ -55,3 +55,53 @@ describe("getWebSocketUrl", () => {
     expect(getWebSocketUrl()).toBe("wss://api.example.com/v1/ws");
   });
 });
+
+describe("getApiConfig — origin safety", () => {
+  // The base URL is the fetch target that carries the organizer's id token.
+  // A non-loopback http:// origin puts that token on the wire in cleartext,
+  // so a deployment typo must fail loudly at startup rather than silently.
+  it("rejects a non-loopback http origin", () => {
+    window.config = {
+      ...window.config,
+      RALLY_BACKEND_BASE_URL: "http://rally.example.com",
+    } as typeof window.config;
+
+    expect(() => getApiConfig()).toThrow(/https/i);
+  });
+
+  it("allows http on loopback, where there is no network to observe", () => {
+    window.config = {
+      ...window.config,
+      RALLY_BACKEND_BASE_URL: "http://localhost:8080",
+    } as typeof window.config;
+
+    expect(getApiConfig().backendBaseUrl).toBe("http://localhost:8080");
+  });
+
+  it("rejects a url carrying credentials", () => {
+    window.config = {
+      ...window.config,
+      RALLY_BACKEND_BASE_URL: "https://user:pass@rally.example.com",
+    } as typeof window.config;
+
+    expect(() => getApiConfig()).toThrow();
+  });
+
+  it("rejects a url carrying a query string or fragment", () => {
+    window.config = {
+      ...window.config,
+      RALLY_BACKEND_BASE_URL: "https://rally.example.com/?a=1",
+    } as typeof window.config;
+
+    expect(() => getApiConfig()).toThrow();
+  });
+
+  it("rejects a value that is not an absolute url", () => {
+    window.config = {
+      ...window.config,
+      RALLY_BACKEND_BASE_URL: "rally.example.com",
+    } as typeof window.config;
+
+    expect(() => getApiConfig()).toThrow();
+  });
+});

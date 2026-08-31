@@ -113,6 +113,11 @@ export default function AppShellLayout({
               component="aside"
               data-testid="app-sidebar-drawer"
               aria-hidden={!sidebarOpen}
+              // aria-hidden hides the drawer from assistive tech and
+              // pointerEvents blocks the mouse, but neither takes its links out
+              // of the tab order: a keyboard user could still tab into a drawer
+              // translated off-screen. inert does both.
+              inert={!sidebarOpen}
               sx={{
                 position: "absolute",
                 left: 0,

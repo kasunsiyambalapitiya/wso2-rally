@@ -73,20 +73,51 @@ export default function EventsPage(): JSX.Element {
 
   // Counted separately from the current page: the filter and pagination must
   // not change what "Active" means.
-  const { data: activeEvents } = useSearchEvents({ limit: 1, status: "active" });
+  const { data: activeEvents, error: activeEventsError } = useSearchEvents({
+    limit: 1,
+    status: "active",
+  });
 
   const events = useMemo(() => data?.items ?? [], [data]);
+  // The dashboard describes the live event, so it follows the unfiltered
+  // active-event query rather than whatever the table is currently showing.
+  // Reading it off the page would make filtering to "setup" quietly repoint
+  // the statistics and alerts at a non-active event while the Active count
+  // still described the live one.
   const focusedEvent =
-    events.find((event) => event.status === "active") ?? events[0];
-  const { data: stats, isLoading: isStatsLoading } = useGetEventStats(
-    focusedEvent?.id,
-  );
+    activeEvents?.items[0] ??
+    events.find((event) => event.status === "active") ??
+    events[0];
+  const {
+    data: stats,
+    error: statsError,
+    isLoading: isStatsLoading,
+  } = useGetEventStats(focusedEvent?.id);
 
   useEffect(() => {
     if (error) {
       showError(getApiErrorMessage(error) ?? "Could not load events.");
     }
   }, [error, showError]);
+
+  // A failed metric must not read as a real zero: "0 active events" and "0
+  // alerts" are exactly what an organizer would act on.
+  useEffect(() => {
+    if (activeEventsError) {
+      showError(
+        getApiErrorMessage(activeEventsError) ??
+          "Could not load the active event count.",
+      );
+    }
+  }, [activeEventsError, showError]);
+
+  useEffect(() => {
+    if (statsError) {
+      showError(
+        getApiErrorMessage(statsError) ?? "Could not load event statistics.",
+      );
+    }
+  }, [statsError, showError]);
 
   const openEvent = (event: RallyEvent): void => {
     void navigate(`/events/${event.id}/setup`);
