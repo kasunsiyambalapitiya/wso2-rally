@@ -1,0 +1,15 @@
+services:
+  db:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: rally
+      MYSQL_USER: rally
+      MYSQL_PASSWORD: rally
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-prally"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
