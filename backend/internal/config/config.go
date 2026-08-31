@@ -47,11 +47,17 @@ type Config struct {
 	TeamTokenSecret string
 	// TeamTokenTTL is how long a minted team token stays valid.
 	TeamTokenTTL time.Duration
-	// JWKSEndpoint serves the Asgardeo public keys. Required when
-	// TokenValidatorEnabled is true.
+	// JWKSEndpoint serves the Asgardeo public keys. Required unless
+	// TOKEN_VALIDATOR_ENABLED is explicitly "false".
 	JWKSEndpoint string
 	// TokenValidatorEnabled turns on full JWKS signature validation for
-	// organizer tokens. Disabled locally, where tokens are decoded only.
+	// organizer tokens.
+	//
+	// It defaults to true, and only the exact value "false" turns it off. An
+	// operator who forgets the variable gets verification; one who wants the
+	// decode-only local path has to ask for it in writing. The reverse default
+	// meant a deployment that merely omitted the variable would boot with a
+	// warning and then accept any forged token carrying groups: ["admin"].
 	TokenValidatorEnabled bool
 	// AdminRole is the group claim that grants organizer admin actions.
 	AdminRole string
@@ -73,7 +79,7 @@ func Load() (Config, error) {
 		TeamTokenSecret:       os.Getenv("TEAM_TOKEN_SECRET"),
 		TeamTokenTTL:          defaultTeamTokenTTL,
 		JWKSEndpoint:          os.Getenv("JWKS_ENDPOINT"),
-		TokenValidatorEnabled: strings.EqualFold(os.Getenv("TOKEN_VALIDATOR_ENABLED"), "true"),
+		TokenValidatorEnabled: !strings.EqualFold(os.Getenv("TOKEN_VALIDATOR_ENABLED"), "false"),
 		AdminRole:             getenv("ADMIN_ROLE", defaultAdminRole),
 		CORSAllowOrigin:       os.Getenv("CORS_ALLOW_ORIGIN"),
 		LogLevel:              strings.ToUpper(getenv("LOG_LEVEL", defaultLogLevel)),

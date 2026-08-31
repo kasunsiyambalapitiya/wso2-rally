@@ -134,13 +134,15 @@ func closeDB(db *sql.DB, logger *slog.Logger) {
 // newOrganizerValidator picks how organizer id tokens are checked.
 //
 // Deployed environments validate signatures against Asgardeo's JWKS. Local
-// development has no tenant to call, so it falls back to decoding claims
-// without verification — which is why config.Load refuses to start with the
-// validator enabled but no endpoint configured.
+// development has no tenant to call, so it can fall back to decoding claims
+// without verification — but only when TOKEN_VALIDATOR_ENABLED is explicitly
+// "false". Anything else, including an unset variable, verifies, and
+// config.Load refuses to start without an endpoint to verify against.
 func newOrganizerValidator(ctx context.Context, cfg config.Config, logger *slog.Logger) (middleware.OrganizerValidator, error) {
 	if !cfg.TokenValidatorEnabled {
-		logger.Warn("organizer token signatures are NOT being verified; " +
-			"set TOKEN_VALIDATOR_ENABLED=true outside local development")
+		logger.Warn("organizer token signatures are NOT being verified because " +
+			"TOKEN_VALIDATOR_ENABLED=false; any forged token is accepted. " +
+			"Never set this outside local development")
 		return authz.NewDecodeOnlyValidator(), nil
 	}
 

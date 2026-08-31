@@ -81,7 +81,7 @@ machine has — Rancher Desktop in containerd mode has no dockerd for
 
 | Caller | Credential | How it is checked |
 |---|---|---|
-| Organizer | Asgardeo id token | JWKS signature validation when `TOKEN_VALIDATOR_ENABLED=true`; claims decoded without verification otherwise |
+| Organizer | Asgardeo id token | JWKS signature validation, unless `TOKEN_VALIDATOR_ENABLED=false` explicitly turns it off |
 | Crew | Team JWT minted by `POST /sessions/bind` | HMAC signature, `iss=rally-team`, expiry |
 
 Both arrive as `Authorization: Bearer <token>`. The auth middleware tries the
@@ -89,11 +89,14 @@ team token first — it is cheap and carries our own issuer — and hands anythi
 else to the organizer validator. Requests then pass a role gate:
 `RequireOrganizer`, `RequireTeam`, or `RequireAdmin`.
 
-> **Decode-only mode is for local development only.** With
-> `TOKEN_VALIDATOR_ENABLED=false` the service trusts organizer claims without
-> checking a signature, and logs a warning at startup saying so. Every deployed
-> environment must set it to `true` and supply `JWKS_ENDPOINT`; `config.Load`
-> refuses to start if one is set without the other.
+> **Decode-only mode is for local development only.** Signature validation is
+> on by default and only the literal `TOKEN_VALIDATOR_ENABLED=false` turns it
+> off, at which point the service trusts organizer claims without checking a
+> signature and logs a warning at startup saying so. Forgetting the variable
+> gets you verification, not the decode-only path — the reverse default meant a
+> deployment that merely omitted it would accept any forged token carrying
+> `groups: ["admin"]`. Anything but the opt-out needs `JWKS_ENDPOINT`, and
+> `config.Load` refuses to start without it.
 
 `POST /sessions/bind` is the only unauthenticated write: binding a vehicle is
 what authenticates a crew, and it is guarded instead by the one-active-phone

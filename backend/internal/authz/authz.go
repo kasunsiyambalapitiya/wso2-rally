@@ -17,7 +17,7 @@
 // Package authz resolves the two identities this backend serves.
 //
 // Organizers arrive with Asgardeo id tokens; crews arrive with team tokens the
-// backend mints itself at POST /sessions/bind. Both reduce to an Identity that
+// backend mints itself at POST /sessions/join. Both reduce to an Identity that
 // middleware places on the request context, and every authorization decision
 // reads from there.
 package authz

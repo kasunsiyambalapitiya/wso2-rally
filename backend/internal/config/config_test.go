@@ -17,6 +17,7 @@
 package config
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -37,6 +38,9 @@ func TestLoad_MissingRequired(t *testing.T) {
 func TestLoad_DefaultsAndValues(t *testing.T) {
 	t.Setenv("DB_DSN", "user:pass@tcp(localhost:3306)/rally")
 	t.Setenv("TEAM_TOKEN_SECRET", "s3cret")
+	// Now required: with the validator on by default there has to be something
+	// to verify against.
+	t.Setenv("JWKS_ENDPOINT", "https://example.test/jwks")
 
 	c, err := Load()
 
@@ -46,7 +50,7 @@ func TestLoad_DefaultsAndValues(t *testing.T) {
 	require.Equal(t, "user:pass@tcp(localhost:3306)/rally", c.DBDsn)
 	require.Equal(t, "rally-admin", c.AdminRole)
 	require.Equal(t, 12*time.Hour, c.TeamTokenTTL)
-	require.False(t, c.TokenValidatorEnabled)
+	require.True(t, c.TokenValidatorEnabled)
 }
 
 func TestLoad_TokenValidatorRequiresJWKS(t *testing.T) {
@@ -59,6 +63,51 @@ func TestLoad_TokenValidatorRequiresJWKS(t *testing.T) {
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "JWKS_ENDPOINT")
+}
+
+// An unset TOKEN_VALIDATOR_ENABLED must mean signatures ARE verified. The
+// insecure path has to be opted into, never inherited from a forgotten
+// variable: a deployment that omits it entirely would otherwise accept any
+// forged token carrying groups: ["admin"] as an organizer admin.
+func TestLoad_TokenValidatorDefaultsToEnabled(t *testing.T) {
+	t.Setenv("DB_DSN", "dsn")
+	t.Setenv("TEAM_TOKEN_SECRET", "s3cret")
+	t.Setenv("JWKS_ENDPOINT", "https://example.test/jwks")
+	t.Setenv("TOKEN_VALIDATOR_ENABLED", "")
+	os.Unsetenv("TOKEN_VALIDATOR_ENABLED")
+
+	c, err := Load()
+
+	require.NoError(t, err)
+	require.True(t, c.TokenValidatorEnabled)
+}
+
+// And with the flag unset, a missing JWKS endpoint must stop the server rather
+// than silently degrade it to decode-only.
+func TestLoad_UnsetValidatorStillRequiresJWKS(t *testing.T) {
+	t.Setenv("DB_DSN", "dsn")
+	t.Setenv("TEAM_TOKEN_SECRET", "s3cret")
+	t.Setenv("JWKS_ENDPOINT", "")
+	t.Setenv("TOKEN_VALIDATOR_ENABLED", "")
+	os.Unsetenv("TOKEN_VALIDATOR_ENABLED")
+
+	_, err := Load()
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "JWKS_ENDPOINT")
+}
+
+// Turning verification off is still possible, but only by saying so.
+func TestLoad_TokenValidatorExplicitOptOut(t *testing.T) {
+	t.Setenv("DB_DSN", "dsn")
+	t.Setenv("TEAM_TOKEN_SECRET", "s3cret")
+	t.Setenv("TOKEN_VALIDATOR_ENABLED", "false")
+	t.Setenv("JWKS_ENDPOINT", "")
+
+	c, err := Load()
+
+	require.NoError(t, err)
+	require.False(t, c.TokenValidatorEnabled)
 }
 
 func TestLoad_InvalidTeamTokenTTL(t *testing.T) {
