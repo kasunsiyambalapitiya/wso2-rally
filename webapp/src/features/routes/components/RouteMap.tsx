@@ -14,7 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { type JSX } from "react";
+import { useEffect, type JSX } from "react";
 import { Box, Typography } from "@wso2/oxygen-ui";
 import {
   Circle,
@@ -23,6 +23,7 @@ import {
   Polyline,
   Tooltip,
   TileLayer,
+  useMap,
 } from "react-leaflet";
 import { getMapConfig } from "@config/mapConfig";
 import type { Boundary } from "@/types/event";
@@ -47,6 +48,39 @@ export interface RouteMapProps {
 
 const isPlaced = (boundary?: Boundary): boundary is Boundary & { lat: number; lng: number } =>
   boundary?.lat != null && boundary?.lng != null;
+
+/**
+ * Re-centres the map when the *anchor* changes.
+ *
+ * `MapContainer` reads `center` and `zoom` only when Leaflet creates the map,
+ * so data arriving after mount leaves the view where it started. Keying on the
+ * anchor's identity rather than its coordinates matters: a vehicle that is
+ * merely moving keeps the same key, so the viewport is not yanked on every
+ * position frame.
+ *
+ * @param {object} props - The anchor key, target centre and zoom.
+ * @returns {null} Renders nothing; it only drives the map.
+ */
+function SyncView({
+  anchorKey,
+  center,
+  zoom,
+}: {
+  anchorKey: string;
+  center: [number, number];
+  zoom: number;
+}): null {
+  const map = useMap();
+
+  useEffect(() => {
+    map.setView(center, zoom);
+    // Coordinates are deliberately absent: only a new anchor moves the view.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anchorKey, map]);
+
+  return null;
+}
+
 
 /**
  * The A3 course overview: every waypoint with its geofence, joined in driving
@@ -76,6 +110,10 @@ export default function RouteMap({
     : isPlaced(start)
       ? [start.lat, start.lng]
       : [mapConfig.defaultCenter.lat, mapConfig.defaultCenter.lng];
+  const zoom = waypoints.length > 0 ? 12 : mapConfig.defaultZoom;
+  // Switching route replaces the waypoints, so the first one's id is what says
+  // "this is a different course now".
+  const anchorKey = first?.id ?? (isPlaced(start) ? "start" : "default");
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
@@ -91,11 +129,12 @@ export default function RouteMap({
       >
         <MapContainer
           center={center}
-          zoom={waypoints.length > 0 ? 12 : mapConfig.defaultZoom}
+          zoom={zoom}
           scrollWheelZoom
           style={{ height: "100%", width: "100%" }}
         >
           <TileLayer attribution={mapConfig.attribution} url={mapConfig.tileUrl} />
+          <SyncView anchorKey={anchorKey} center={center} zoom={zoom} />
 
           {isPlaced(start) && (
             <Circle

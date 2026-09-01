@@ -223,9 +223,18 @@ func escapeLike(s string) string {
 }
 
 func (r *sqlRepo) Delete(ctx context.Context, id string) error {
-	// Crew, sessions and alerts cascade away with the row; the service has
-	// already refused any vehicle whose session history that would destroy.
-	result, err := r.db.ExecContext(ctx, "DELETE FROM vehicle WHERE id = ?", id)
+	// Crew, sessions and alerts cascade away with the row, so the guard against
+	// deleting a vehicle that has run has to hold at the moment of the delete —
+	// not a statement earlier. Service.Delete checks HasRun first for a helpful
+	// error, but a session created between that check and this statement would
+	// otherwise be destroyed along with its alerts and submissions. The join
+	// makes the check and the delete one statement, so there is no window.
+	const query = `
+		DELETE v FROM vehicle v
+		LEFT JOIN team_session s ON s.vehicle_id = v.id
+		WHERE v.id = ? AND s.id IS NULL`
+
+	result, err := r.db.ExecContext(ctx, query, id)
 	if err != nil {
 		return fmt.Errorf("delete vehicle %s: %w", id, err)
 	}
@@ -235,6 +244,16 @@ func (r *sqlRepo) Delete(ctx context.Context, id string) error {
 		return fmt.Errorf("read affected rows: %w", err)
 	}
 	if affected == 0 {
+		// Nothing was deleted: either the vehicle is gone, or it gained a
+		// session since the service checked. Say which.
+		hasRun, runErr := r.HasRun(ctx, id)
+		if runErr != nil {
+			return runErr
+		}
+		if hasRun {
+			return ErrHasRun
+		}
+
 		return ErrNotFound
 	}
 

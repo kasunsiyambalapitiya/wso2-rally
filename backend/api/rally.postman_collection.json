@@ -848,34 +848,6 @@
               }
             }
           ]
-        },
-        {
-          "name": "Remove vehicle",
-          "request": {
-            "method": "DELETE",
-            "header": [],
-            "url": {
-              "raw": "{{baseUrl}}/vehicles/{{vehicleId}}",
-              "host": ["{{baseUrl}}"],
-              "path": ["vehicles", "{{vehicleId}}"]
-            },
-            "description": "Corrects provisioning; it does not retire a car mid-rally.\n\nSessions, submissions, scores and alerts all hang off the vehicle row by a cascading foreign key, so this is refused with a **409 once the vehicle has any session** — deleting one then would erase a result rather than fix a typo. The crew cascades away with the vehicle.\n\nRun it after the *In-car (crew)* folder and you should get the 409, which is the interesting case."
-          },
-          "event": [
-            {
-              "listen": "test",
-              "script": {
-                "type": "text/javascript",
-                "exec": [
-                  "// 204 before the car has run, 409 after — both are correct,",
-                  "// so assert the pair rather than pinning one.",
-                  "pm.test('204 deleted, or 409 because it has run', () => {",
-                  "    pm.expect(pm.response.code).to.be.oneOf([204, 409]);",
-                  "});"
-                ]
-              }
-            }
-          ]
         }
       ]
     },
@@ -1339,6 +1311,40 @@
               "script": {
                 "type": "text/javascript",
                 "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Cleanup",
+      "description": "Destructive requests, kept last so a top-to-bottom run does not delete the vehicle that the Alerts and In-car folders still need.",
+      "item": [
+        {
+          "name": "Remove vehicle",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/vehicles/{{vehicleId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["vehicles", "{{vehicleId}}"]
+            },
+            "description": "Corrects provisioning; it does not retire a car mid-rally.\n\nSessions, submissions, scores and alerts all hang off the vehicle row by a cascading foreign key, so this is refused with a **409 once the vehicle has any session** — deleting one then would erase a result rather than fix a typo. The crew cascades away with the vehicle.\n\nRun it after the *In-car (crew)* folder and you should get the 409, which is the interesting case."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// 204 before the car has run, 409 after — both are correct,",
+                  "// so assert the pair rather than pinning one.",
+                  "pm.test('204 deleted, or 409 because it has run', () => {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([204, 409]);",
+                  "});"
+                ]
               }
             }
           ]

@@ -131,13 +131,38 @@ func bearerToken(r *http.Request) (string, bool) {
 	return token, true
 }
 
+// isWebSocketHandshake reports whether this request is an Upgrade to WebSocket.
+//
+// RFC 6455 requires the token `websocket` in Upgrade, and the header may list
+// several tokens, so match an entry rather than the whole value.
+func isWebSocketHandshake(r *http.Request) bool {
+	for _, value := range r.Header.Values("Upgrade") {
+		for entry := range strings.SplitSeq(value, ",") {
+			if strings.EqualFold(strings.TrimSpace(entry), "websocket") {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 // subprotocolToken reads the token a browser offered as
 // `Sec-WebSocket-Protocol: rally-bearer, <token>`.
+//
+// Only a handshake is consulted. The fallback exists because a browser cannot
+// set a header on one; an ordinary request can, so honouring a subprotocol
+// there would open a second credential channel across the whole API to serve
+// the single route that needs it.
 //
 // Only the entry immediately after the marker counts. Anything else — the
 // marker alone, some other protocol, a name that merely starts the same way —
 // yields nothing, so a malformed handshake is a 401 rather than a guess.
 func subprotocolToken(r *http.Request) (string, bool) {
+	if !isWebSocketHandshake(r) {
+		return "", false
+	}
+
 	offered := r.Header.Values("Sec-WebSocket-Protocol")
 	if len(offered) == 0 {
 		return "", false

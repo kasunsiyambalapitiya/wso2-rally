@@ -242,6 +242,40 @@ func TestRepo_Delete_RemovesTheVehicleAndItsCrew(t *testing.T) {
 	require.Zero(t, crewRows, "the crew cascades with its vehicle")
 }
 
+// The service checks HasRun before calling Delete, but a session can be created
+// in between. The delete itself must refuse, or the cascade takes the session,
+// its alerts and its submissions with it.
+func TestRepo_Delete_RefusesAVehicleThatGainedASession(t *testing.T) {
+	db := storetest.DB(t)
+	repo := NewRepo(db)
+	svc := NewService(repo)
+	ctx := context.Background()
+	eventID := seedEventWithRoutes(t, db)
+	_, err := svc.ImportCSV(ctx, eventID, strings.NewReader(importCSV))
+	require.NoError(t, err)
+	found, _, err := repo.Search(ctx, eventID, SearchFilter{Query: "PKT-001"}, httpx.Page{Offset: 0, Limit: 20})
+	require.NoError(t, err)
+	vehicle := found[0]
+
+	// Stands in for the session that commits between the guard and the delete:
+	// the repository is called directly, exactly as it would be after losing
+	// that race.
+	_, err = db.Exec(
+		"INSERT INTO team_session (id, event_id, vehicle_id, status) VALUES (?, ?, ?, 'bound')",
+		store.NewID(), eventID, vehicle.ID)
+	require.NoError(t, err)
+
+	require.ErrorIs(t, repo.Delete(ctx, vehicle.ID), ErrHasRun)
+
+	_, err = repo.Get(ctx, vehicle.ID)
+	require.NoError(t, err, "the vehicle survives")
+
+	var sessions int
+	require.NoError(t, db.QueryRow(
+		"SELECT COUNT(*) FROM team_session WHERE vehicle_id = ?", vehicle.ID).Scan(&sessions))
+	require.Equal(t, 1, sessions, "and so does the session it would have cascaded")
+}
+
 func TestRepo_HasRun_SeesASession(t *testing.T) {
 	db := storetest.DB(t)
 	repo := NewRepo(db)

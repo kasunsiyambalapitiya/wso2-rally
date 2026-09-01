@@ -127,6 +127,15 @@ export default function VehiclesPage(): JSX.Element {
     setPage(0);
   };
 
+  // A route filter is an id from one event's routes, so it matches nothing in
+  // the next one and would silently empty the table. The page number belongs to
+  // the old result set for the same reason.
+  const changeEvent = (eventId: string): void => {
+    setRouteFilter("");
+    setPage(0);
+    selectEvent(eventId);
+  };
+
   const handleSave = (
     body: CreateVehicleRequest & { status?: VehicleStatus },
   ): void => {
@@ -168,6 +177,11 @@ export default function VehiclesPage(): JSX.Element {
         onSuccess: () => {
           showSuccess(`${pendingDelete.code} removed.`);
           setPendingDelete(null);
+          // Removing the last row of a later page would otherwise leave the
+          // table empty while earlier pages still hold rows.
+          if (vehicles.length === 1 && page > 0) {
+            setPage(page - 1);
+          }
         },
         onError: onMutationError("Could not remove the vehicle."),
       },
@@ -190,7 +204,7 @@ export default function VehiclesPage(): JSX.Element {
         <EventSelect
           events={events}
           isLoading={isEventsLoading}
-          onChange={selectEvent}
+          onChange={changeEvent}
           selectedEventId={selectedEventId}
         />
         <FleetToolbar

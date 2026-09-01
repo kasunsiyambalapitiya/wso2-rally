@@ -75,7 +75,10 @@ function AddRouteForm({
           label="Route name"
           onChange={(changeEvent) => setName(changeEvent.target.value)}
           onKeyDown={(keyEvent) => {
-            if (keyEvent.key === "Enter" && name.trim() !== "") {
+            // Same guard as the Add button: without isSaving, holding Enter
+            // fires a second POST, and the duplicate name comes back 409 —
+            // an error banner for an action that already succeeded.
+            if (keyEvent.key === "Enter" && name.trim() !== "" && !isSaving) {
               onSave(name.trim());
             }
           }}

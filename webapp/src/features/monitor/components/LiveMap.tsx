@@ -14,9 +14,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { type JSX } from "react";
+import { useEffect, type JSX } from "react";
 import { Box, Typography } from "@wso2/oxygen-ui";
-import { Circle, CircleMarker, MapContainer, TileLayer, Tooltip } from "react-leaflet";
+import {
+  Circle,
+  CircleMarker,
+  MapContainer,
+  TileLayer,
+  Tooltip,
+  useMap,
+} from "react-leaflet";
 import { getMapConfig } from "@config/mapConfig";
 import type { Boundary } from "@/types/event";
 import type { VehicleLive } from "@features/monitor/monitorState";
@@ -43,6 +50,39 @@ const isPlaced = (
   boundary?: Boundary,
 ): boundary is Boundary & { lat: number; lng: number } =>
   boundary?.lat != null && boundary?.lng != null;
+
+
+/**
+ * Re-centres the map when the *anchor* changes.
+ *
+ * `MapContainer` reads `center` and `zoom` only when Leaflet creates the map,
+ * so data arriving after mount leaves the view where it started. Keying on the
+ * anchor's identity rather than its coordinates matters: a vehicle that is
+ * merely moving keeps the same key, so the viewport is not yanked on every
+ * position frame.
+ *
+ * @param {object} props - The anchor key, target centre and zoom.
+ * @returns {null} Renders nothing; it only drives the map.
+ */
+function SyncView({
+  anchorKey,
+  center,
+  zoom,
+}: {
+  anchorKey: string;
+  center: [number, number];
+  zoom: number;
+}): null {
+  const map = useMap();
+
+  useEffect(() => {
+    map.setView(center, zoom);
+    // Coordinates are deliberately absent: only a new anchor moves the view.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anchorKey, map]);
+
+  return null;
+}
 
 const colorOf = (vehicle: VehicleLive): string =>
   vehicle.sessionStatus === "finished"
@@ -75,6 +115,10 @@ export default function LiveMap({
     : isPlaced(start)
       ? [start.lat, start.lng]
       : [mapConfig.defaultCenter.lat, mapConfig.defaultCenter.lng];
+  const zoom = placed.length > 0 ? 12 : mapConfig.defaultZoom;
+  // The first car to report is the anchor. Its code, not its coordinates, so
+  // the view settles once rather than chasing it around the course.
+  const anchorKey = first?.vehicleCode ?? (isPlaced(start) ? "start" : "default");
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
@@ -92,9 +136,10 @@ export default function LiveMap({
           center={center}
           scrollWheelZoom
           style={{ height: "100%", width: "100%" }}
-          zoom={placed.length > 0 ? 12 : mapConfig.defaultZoom}
+          zoom={zoom}
         >
           <TileLayer attribution={mapConfig.attribution} url={mapConfig.tileUrl} />
+          <SyncView anchorKey={anchorKey} center={center} zoom={zoom} />
 
           {isPlaced(start) && (
             <Circle

@@ -181,6 +181,35 @@ function countOpen(state: MonitorState, alert: RallyAlert): number {
   return state.openAlerts;
 }
 
+/** The alert types the backend can send, mirroring the `alert_type` enum. */
+const ALERT_TYPES = new Set(["breakdown", "device_issue", "other"]);
+
+/**
+ * Reports whether a frame's `alert` field is really an alert.
+ *
+ * Every other frame validates its fields before the cast; this one accepted any
+ * non-null object, so a malformed frame reached the reducer and the alert strip
+ * rendered undefined ids and types.
+ *
+ * @param {unknown} value - The candidate `message.alert`.
+ * @returns {boolean} True when the field carries a usable alert.
+ */
+function isAlertPayload(value: unknown): boolean {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const alert = value as Record<string, unknown>;
+
+  return (
+    typeof alert.id === "string" &&
+    alert.id !== "" &&
+    typeof alert.type === "string" &&
+    ALERT_TYPES.has(alert.type) &&
+    typeof alert.note === "string" &&
+    (alert.resolvedAt === null || typeof alert.resolvedAt === "string")
+  );
+}
+
 /**
  * Parses one socket frame, returning null for anything that is not a message
  * this app models.
@@ -224,9 +253,7 @@ export function parseMonitorMessage(raw: string): MonitorMessage | null {
         : null;
 
     case "alert":
-      return typeof message.alert === "object" && message.alert !== null
-        ? (message as unknown as MonitorMessage)
-        : null;
+      return isAlertPayload(message.alert) ? (message as unknown as MonitorMessage) : null;
 
     case "leaderboard":
       return { type: "leaderboard", entries: [] };

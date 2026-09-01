@@ -229,6 +229,26 @@ func TestAuth_AcceptsATokenFromTheWebSocketSubprotocol(t *testing.T) {
 	require.Equal(t, "sess1", got.SessionID)
 }
 
+// The fallback exists for handshakes, which cannot carry an Authorization
+// header. An ordinary request has no business offering subprotocols, so
+// honouring one there would be a second credential channel across the whole
+// API to serve a single route.
+func TestAuth_IgnoresSubprotocolOnANonHandshake(t *testing.T) {
+	tok, err := authz.MintTeamToken(teamSecret,
+		authz.TeamClaims{SessionID: "sess1", VehicleID: "veh1", DeviceID: "dev1", CrewMemberID: "crew1"},
+		time.Hour)
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodGet, "/x", nil)
+	req.Header.Set("Sec-WebSocket-Protocol", authz.BearerSubprotocol+", "+tok)
+	// Deliberately no Upgrade header: this is a plain REST call.
+	rr := httptest.NewRecorder()
+	var got authz.Identity
+	Auth(testConfig(), rejectingValidator())(okHandler(&got)).ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusUnauthorized, rr.Code)
+}
+
 func TestAuth_SubprotocolTokenWorksForOrganizersToo(t *testing.T) {
 	organizer := authz.Identity{Kind: authz.KindOrganizer, UserID: "u1", Groups: []string{"rally-admin"}}
 	var got authz.Identity
@@ -281,6 +301,8 @@ func serveWithSubprotocols(
 	t.Helper()
 
 	req := httptest.NewRequest(http.MethodGet, "/x", nil)
+	// These cases are handshakes; the fallback is only consulted on one.
+	req.Header.Set("Upgrade", "websocket")
 	if offered != "" {
 		req.Header.Set("Sec-WebSocket-Protocol", offered)
 	}
