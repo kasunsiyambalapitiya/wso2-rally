@@ -50,7 +50,10 @@ const branch = task({
   title: "Dynamic Route Select",
   type: "BRANCH",
   trigger: "choice",
+  // points is deliberately non-zero and deliberately ignored: validateBranch
+  // scores a branch from its config, so the table must read these two.
   points: 40,
+  config: { solvePoints: 40, skipPoints: -15 },
 });
 const rest = task({
   id: "t12",
@@ -96,13 +99,15 @@ describe("TasksTable", () => {
   });
 
   // A branch is the one task that can cost points, and a rest lock never
-  // awards any — neither reads as a plain number.
+  // awards any — neither reads as a plain number. The branch shows both of its
+  // config values rather than task.points, which the engine never reads.
   it("renders branch and rest points distinctly", () => {
     renderTable([cipher, branch, rest]);
 
     const rows = screen.getAllByRole("row");
     expect(within(rows[1]).getByText("50")).toBeInTheDocument();
-    expect(within(rows[2]).getByText("±40")).toBeInTheDocument();
+    expect(within(rows[2]).getByText("+40 / -15")).toBeInTheDocument();
+    expect(within(rows[2]).queryByText("±40")).not.toBeInTheDocument();
     expect(within(rows[3]).getByText(NULL_PLACEHOLDER)).toBeInTheDocument();
   });
 

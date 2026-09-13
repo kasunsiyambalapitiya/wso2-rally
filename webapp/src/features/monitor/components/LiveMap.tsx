@@ -40,6 +40,8 @@ const FINISHED_COLOR = "#1d4ed8";
 const BOUNDARY_COLOR = "#2f8f4e";
 
 export interface LiveMapProps {
+  /** Scopes the map's anchor, so switching event always re-centres. */
+  eventId: string | null;
   vehicles: VehicleLive[];
   start?: Boundary;
   end?: Boundary;
@@ -100,6 +102,7 @@ const colorOf = (vehicle: VehicleLive): string =>
  * @returns {JSX.Element} The live map.
  */
 export default function LiveMap({
+  eventId,
   vehicles,
   start,
   end,
@@ -118,7 +121,13 @@ export default function LiveMap({
   const zoom = placed.length > 0 ? 12 : mapConfig.defaultZoom;
   // The first car to report is the anchor. Its code, not its coordinates, so
   // the view settles once rather than chasing it around the course.
-  const anchorKey = first?.vehicleCode ?? (isPlaced(start) ? "start" : "default");
+  //
+  // The event id is part of the key because a cached snapshot keeps this
+  // component mounted across an event switch: two events whose anchor is
+  // "start", or that share a first vehicle code, would otherwise keep the old
+  // viewport.
+  const anchor = first?.vehicleCode ?? (isPlaced(start) ? "start" : "default");
+  const anchorKey = `${eventId ?? "none"}:${anchor}`;
 
   return (
     <Box sx={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>

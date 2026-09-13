@@ -74,13 +74,17 @@ function RadiusField({
 
   const commit = (): void => {
     const parsed = Number(draft);
-    if (!Number.isFinite(parsed) || parsed <= 0) {
+    // Round first, then judge: 0.4 is positive but rounds to a zero-metre
+    // geofence. Comparing the rounded value also stops 12.4 from posting an
+    // update that leaves the stored 12 unchanged.
+    const rounded = Number.isFinite(parsed) ? Math.round(parsed) : 0;
+    if (rounded <= 0) {
       setDraft(String(waypoint.boundaryRadiusM));
 
       return;
     }
-    if (parsed !== waypoint.boundaryRadiusM) {
-      onCommit(Math.round(parsed));
+    if (rounded !== waypoint.boundaryRadiusM) {
+      onCommit(rounded);
     }
   };
 

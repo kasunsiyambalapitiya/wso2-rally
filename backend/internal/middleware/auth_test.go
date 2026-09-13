@@ -221,7 +221,7 @@ func TestAuth_AcceptsATokenFromTheWebSocketSubprotocol(t *testing.T) {
 	require.NoError(t, err)
 	var got authz.Identity
 
-	rr := serveWithSubprotocols(t, Auth(testConfig(), rejectingValidator()), &got,
+	rr := serveWithSubprotocols(t, AuthWS(testConfig(), rejectingValidator()), &got,
 		authz.BearerSubprotocol+", "+tok)
 
 	require.Equal(t, http.StatusOK, rr.Code)
@@ -249,11 +249,51 @@ func TestAuth_IgnoresSubprotocolOnANonHandshake(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, rr.Code)
 }
 
+// Gating the fallback on an Upgrade header is not a gate: any client can set
+// one on a REST call. Only the route that actually upgrades may consult the
+// subprotocol, so plain Auth must refuse it even on a well-formed handshake.
+func TestAuth_RefusesSubprotocolOnRESTEvenWithUpgradeHeader(t *testing.T) {
+	tok, err := authz.MintTeamToken(teamSecret,
+		authz.TeamClaims{SessionID: "sess1", VehicleID: "veh1", DeviceID: "dev1", CrewMemberID: "crew1"},
+		time.Hour)
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodGet, "/events/search", nil)
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Sec-WebSocket-Version", "13")
+	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+	req.Header.Set("Sec-WebSocket-Protocol", authz.BearerSubprotocol+", "+tok)
+	rr := httptest.NewRecorder()
+	var got authz.Identity
+	Auth(testConfig(), rejectingValidator())(okHandler(&got)).ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusUnauthorized, rr.Code,
+		"a REST route must not accept a credential offered as a subprotocol")
+}
+
+// AuthWS is the same middleware with the fallback enabled, mounted only on /ws.
+func TestAuthWS_AcceptsSubprotocolOnTheHandshake(t *testing.T) {
+	tok, err := authz.MintTeamToken(teamSecret,
+		authz.TeamClaims{SessionID: "sess1", VehicleID: "veh1", DeviceID: "dev1", CrewMemberID: "crew1"},
+		time.Hour)
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
+	req.Header.Set("Sec-WebSocket-Protocol", authz.BearerSubprotocol+", "+tok)
+	rr := httptest.NewRecorder()
+	var got authz.Identity
+	AuthWS(testConfig(), rejectingValidator())(okHandler(&got)).ServeHTTP(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+	require.Equal(t, "sess1", got.SessionID)
+}
+
 func TestAuth_SubprotocolTokenWorksForOrganizersToo(t *testing.T) {
 	organizer := authz.Identity{Kind: authz.KindOrganizer, UserID: "u1", Groups: []string{"rally-admin"}}
 	var got authz.Identity
 
-	rr := serveWithSubprotocols(t, Auth(testConfig(), stubValidator{identity: organizer}), &got,
+	rr := serveWithSubprotocols(t, AuthWS(testConfig(), stubValidator{identity: organizer}), &got,
 		authz.BearerSubprotocol+",an-id-token")
 
 	require.Equal(t, http.StatusOK, rr.Code)
@@ -288,7 +328,7 @@ func TestAuth_RejectsMalformedSubprotocolLists(t *testing.T) {
 		"rally-bearer-ish, some-token", // a marker that only looks like ours
 	} {
 		t.Run(offered, func(t *testing.T) {
-			rr := serveWithSubprotocols(t, Auth(testConfig(), rejectingValidator()), nil, offered)
+			rr := serveWithSubprotocols(t, AuthWS(testConfig(), rejectingValidator()), nil, offered)
 
 			require.Equal(t, http.StatusUnauthorized, rr.Code)
 		})
@@ -301,8 +341,6 @@ func serveWithSubprotocols(
 	t.Helper()
 
 	req := httptest.NewRequest(http.MethodGet, "/x", nil)
-	// These cases are handshakes; the fallback is only consulted on one.
-	req.Header.Set("Upgrade", "websocket")
 	if offered != "" {
 		req.Header.Set("Sec-WebSocket-Protocol", offered)
 	}

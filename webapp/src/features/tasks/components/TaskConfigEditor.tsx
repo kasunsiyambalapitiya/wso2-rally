@@ -123,6 +123,11 @@ export default function TaskConfigEditor({
             setValue(field.key, raw === "" ? undefined : Number(raw));
           }}
           size="small"
+          // step="any": without it the native number input steps by 1 and
+          // marks a decimal such as a 0.5 tolerance invalid, which blocks the
+          // form. The backend stores these as JSON numbers and applies no
+          // integer-only rule.
+          slotProps={{ htmlInput: { step: "any" } }}
           type="number"
           value={toNumberInput(config[field.key])}
         />

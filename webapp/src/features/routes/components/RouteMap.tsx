@@ -14,7 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { useEffect, type JSX } from "react";
+import { Fragment, useEffect, type JSX } from "react";
 import { Box, Typography } from "@wso2/oxygen-ui";
 import {
   Circle,
@@ -163,8 +163,11 @@ export default function RouteMap({
             const isSelected = waypoint.id === selectedId;
             const color = isSelected ? SELECTED_COLOR : WAYPOINT_COLOR;
 
+            // A fragment, not a Box: react-leaflet attaches these to the map
+            // itself, so a wrapper would put a stray span inside the container
+            // Leaflet manages.
             return (
-              <Box component="span" key={waypoint.id}>
+              <Fragment key={waypoint.id}>
                 <Circle
                   center={[waypoint.lat, waypoint.lng]}
                   pathOptions={{ color, fillOpacity: isSelected ? 0.3 : 0.15 }}
@@ -180,7 +183,7 @@ export default function RouteMap({
                     {index + 1}. {waypoint.label} · {waypoint.boundaryRadiusM} m
                   </Tooltip>
                 </CircleMarker>
-              </Box>
+              </Fragment>
             );
           })}
         </MapContainer>

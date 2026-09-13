@@ -146,7 +146,7 @@ export default function TasksPage(): JSX.Element {
           selectedEventId={selectedEventId}
         />
         <Button
-          disabled={!selectedEventId}
+          disabled={!selectedEventId || isLoading || !data}
           onClick={() =>
             setEditing(newTask(selectedEventId ?? "", nextFreeCode(tasks)))
           }

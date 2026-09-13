@@ -29,9 +29,8 @@ export interface EventSelectProps {
 /**
  * Picks which event a feature page is working against.
  *
- * Shared by Tasks, and by Routes and Vehicles when they are built — the A3–A5
- * screens are all top-level pages that need an event before they can show
- * anything.
+ * Shared by Routes, Tasks, Vehicles and the Live Monitor — the A3–A6 screens
+ * are all top-level pages that need an event before they can show anything.
  *
  * @param {EventSelectProps} props - The event list and the current selection.
  * @returns {JSX.Element} The event picker.

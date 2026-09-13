@@ -41,8 +41,16 @@ const chipColor = (done: number, total: number): "success" | "warning" | "defaul
 export default function CompletionMatrix({
   vehicles,
 }: CompletionMatrixProps): JSX.Element {
+  // Routes carry different task counts, so raw `done` is not comparable across
+  // courses — 10/100 would outrank 9/10. Rank on the fraction, and fall back to
+  // the count then the code so the order is stable.
+  const ratio = (vehicle: VehicleLive): number =>
+    vehicle.totalTasks > 0 ? vehicle.done / vehicle.totalTasks : 0;
   const ranked = [...vehicles].sort(
-    (left, right) => right.done - left.done || left.vehicleCode.localeCompare(right.vehicleCode),
+    (left, right) =>
+      ratio(right) - ratio(left) ||
+      right.done - left.done ||
+      left.vehicleCode.localeCompare(right.vehicleCode),
   );
 
   return (

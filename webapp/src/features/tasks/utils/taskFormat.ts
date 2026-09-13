@@ -49,11 +49,20 @@ export function formatTrigger(task: RallyTask): string {
  * @returns {string} The points label.
  */
 export function formatPoints(task: RallyTask): string {
+  // A branch is scored from its config, never from task.points: validateBranch
+  // awards solvePoints or skipPoints. Showing points here would report a number
+  // the engine never uses.
+  if (task.type === "BRANCH") {
+    const solve = Number(task.config?.solvePoints ?? 0);
+    const skip = Number(task.config?.skipPoints ?? 0);
+    if (solve === 0 && skip === 0) {
+      return NULL_PLACEHOLDER;
+    }
+
+    return `+${solve} / ${skip >= 0 ? "+" : ""}${skip}`;
+  }
   if (task.type === "REST_LOCK" || task.points === 0) {
     return NULL_PLACEHOLDER;
-  }
-  if (task.type === "BRANCH") {
-    return `±${Math.abs(task.points)}`;
   }
 
   return String(task.points);

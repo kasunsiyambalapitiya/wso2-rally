@@ -495,8 +495,15 @@
                 "exec": [
                   "pm.test('200 OK', () => pm.response.to.have.status(200));",
                   "const route = pm.response.json();",
+                  "// Assert the removal itself. Checking only the ordering passes on a",
+                  "// no-op delete, and passes again when waypoints is absent entirely.",
+                  "pm.test('the waypoint is gone', () => {",
+                  "    pm.expect(route.waypoints, 'waypoints').to.be.an('array');",
+                  "    const ids = route.waypoints.map((w) => w.id);",
+                  "    pm.expect(ids).to.not.include(pm.collectionVariables.get('waypointId'));",
+                  "});",
                   "pm.test('the order is left gap-free', () => {",
-                  "    const orders = (route.waypoints || []).map((w) => w.order);",
+                  "    const orders = route.waypoints.map((w) => w.order);",
                   "    pm.expect(orders).to.eql(orders.map((_, i) => i));",
                   "});"
                 ]

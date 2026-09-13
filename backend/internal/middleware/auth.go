@@ -41,10 +41,30 @@ type OrganizerValidator interface {
 // carry our own issuer; anything else is handed to the organizer validator.
 // A token that satisfies neither is a 401 — the response never says which
 // check failed.
+//
+// The credential must arrive in the Authorization header. Only AuthWS also
+// reads the WebSocket subprotocol.
 func Auth(cfg config.Config, organizer OrganizerValidator) func(http.Handler) http.Handler {
+	return authenticate(cfg, organizer, false)
+}
+
+// AuthWS is Auth with the WebSocket subprotocol fallback enabled. Mount it on
+// the upgrade route and nowhere else.
+//
+// A browser can set no header on a handshake, so the token has to ride in the
+// subprotocol list there. Gating that on an Upgrade header would not scope it:
+// any client can set one on an ordinary REST call, which would leave a second
+// credential channel open across the whole API. Route mounting is the gate.
+func AuthWS(cfg config.Config, organizer OrganizerValidator) func(http.Handler) http.Handler {
+	return authenticate(cfg, organizer, true)
+}
+
+func authenticate(
+	cfg config.Config, organizer OrganizerValidator, allowSubprotocol bool,
+) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			raw, ok := bearerToken(r)
+			raw, ok := bearerToken(r, allowSubprotocol)
 			if !ok {
 				httpx.WriteUnauthorized(w)
 				return
@@ -112,57 +132,42 @@ func requireKind(kind authz.Kind, next http.Handler) http.Handler {
 }
 
 // bearerToken extracts the credential from an Authorization header, falling
-// back to the WebSocket subprotocol list for handshakes, which cannot carry one.
+// back to the WebSocket subprotocol list only where the caller allows it.
 //
-// The header is authoritative where both are present: an ordinary request has
-// no business offering subprotocols, and preferring them would let one override
-// the credential the caller actually authenticated with.
-func bearerToken(r *http.Request) (string, bool) {
+// The header is authoritative where both are present: preferring the
+// subprotocol would let one override the credential the caller actually
+// authenticated with.
+func bearerToken(r *http.Request, allowSubprotocol bool) (string, bool) {
+	fallback := func() (string, bool) {
+		if !allowSubprotocol {
+			return "", false
+		}
+
+		return subprotocolToken(r)
+	}
+
 	header := r.Header.Get("Authorization")
 	if len(header) < len(bearerPrefix) || !strings.EqualFold(header[:len(bearerPrefix)], bearerPrefix) {
-		return subprotocolToken(r)
+		return fallback()
 	}
 
 	token := strings.TrimSpace(header[len(bearerPrefix):])
 	if token == "" {
-		return subprotocolToken(r)
+		return fallback()
 	}
 
 	return token, true
 }
 
-// isWebSocketHandshake reports whether this request is an Upgrade to WebSocket.
-//
-// RFC 6455 requires the token `websocket` in Upgrade, and the header may list
-// several tokens, so match an entry rather than the whole value.
-func isWebSocketHandshake(r *http.Request) bool {
-	for _, value := range r.Header.Values("Upgrade") {
-		for entry := range strings.SplitSeq(value, ",") {
-			if strings.EqualFold(strings.TrimSpace(entry), "websocket") {
-				return true
-			}
-		}
-	}
-
-	return false
-}
-
 // subprotocolToken reads the token a browser offered as
 // `Sec-WebSocket-Protocol: rally-bearer, <token>`.
 //
-// Only a handshake is consulted. The fallback exists because a browser cannot
-// set a header on one; an ordinary request can, so honouring a subprotocol
-// there would open a second credential channel across the whole API to serve
-// the single route that needs it.
+// It is reached only from AuthWS, which is mounted on the upgrade route alone.
 //
 // Only the entry immediately after the marker counts. Anything else — the
 // marker alone, some other protocol, a name that merely starts the same way —
 // yields nothing, so a malformed handshake is a 401 rather than a guess.
 func subprotocolToken(r *http.Request) (string, bool) {
-	if !isWebSocketHandshake(r) {
-		return "", false
-	}
-
 	offered := r.Header.Values("Sec-WebSocket-Protocol")
 	if len(offered) == 0 {
 		return "", false

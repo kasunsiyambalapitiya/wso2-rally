@@ -138,6 +138,7 @@ export default function MonitorPage(): JSX.Element {
         ) : (
           <LiveMap
             end={selectedEvent?.end}
+            eventId={selectedEventId ?? null}
             start={selectedEvent?.start}
             vehicles={vehicles}
           />

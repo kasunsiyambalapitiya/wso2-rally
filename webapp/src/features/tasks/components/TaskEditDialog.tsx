@@ -234,16 +234,21 @@ function TaskEditDialogForm({
                   </MenuItem>
                 ))}
               </TextField>
-              <TextField
-                error={Boolean(errors.points)}
-                helperText={errors.points}
-                label="Points"
-                onChange={(e) => setField("points", e.target.value)}
-                size="small"
-                sx={{ width: 130 }}
-                type="number"
-                value={form.points}
-              />
+              {/* A branch scores from solvePoints and skipPoints below, so
+                  offering Points here would invite editing a number the engine
+                  ignores. */}
+              {form.type !== "BRANCH" && (
+                <TextField
+                  error={Boolean(errors.points)}
+                  helperText={errors.points}
+                  label="Points"
+                  onChange={(e) => setField("points", e.target.value)}
+                  size="small"
+                  sx={{ width: 130 }}
+                  type="number"
+                  value={form.points}
+                />
+              )}
             </Box>
 
             <Divider />

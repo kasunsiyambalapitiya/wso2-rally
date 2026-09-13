@@ -93,9 +93,11 @@ function WaypointForm({
   const [draft, setDraft] = useState<Draft>(() => toDraft(waypoint));
 
   const radius = Number(draft.radius);
+  // Validate what gets submitted, not what was typed: 0.4 is a positive number
+  // that rounds to a zero-metre geofence, which can never be entered.
+  const roundedRadius = Number.isFinite(radius) ? Math.round(radius) : 0;
   const isPlaced = draft.lat !== null && draft.lng !== null;
-  const isValid =
-    draft.label.trim() !== "" && isPlaced && Number.isFinite(radius) && radius > 0;
+  const isValid = draft.label.trim() !== "" && isPlaced && roundedRadius > 0;
 
   const handleSave = (): void => {
     if (!isValid || draft.lat === null || draft.lng === null) return;
@@ -104,7 +106,7 @@ function WaypointForm({
       label: draft.label.trim(),
       lat: draft.lat,
       lng: draft.lng,
-      boundaryRadiusM: Math.round(radius),
+      boundaryRadiusM: roundedRadius,
     });
   };
 

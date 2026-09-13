@@ -93,12 +93,21 @@ func newRouter(d deps) http.Handler {
 	// Binding runs before a crew has any credential: it is what issues one.
 	sessionsHandler.RegisterPublic(r)
 
+	// Live updates, in their own group: a browser can set no Authorization
+	// header on a handshake, so this is the one route whose middleware also
+	// reads the credential from the WebSocket subprotocol. Scoping it by mount
+	// is what keeps that second channel off every REST route — an Upgrade
+	// header would not, since any caller can send one.
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.AuthWS(d.cfg, d.organizer))
+
+		// The handler checks the caller may listen to the topic it asked for
+		// before upgrading.
+		r.Get("/ws", wsHandler(hub, d.logger))
+	})
+
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Auth(d.cfg, d.organizer))
-
-		// Live updates. The handler checks the caller may listen to the topic
-		// it asked for before upgrading.
-		r.Get("/ws", wsHandler(hub, d.logger))
 
 		// Readable by either identity. Mounted above the role gates because
 		// chi cannot carry the same path in two sibling groups; the handler

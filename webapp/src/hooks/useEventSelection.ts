@@ -40,7 +40,7 @@ export interface EventSelection {
  * Resolves which event the feature pages (Tasks, Routes, Vehicles) are working
  * against.
  *
- * The A3–A5 wireframes are top-level pages with no event in the path, so the
+ * The A3–A6 wireframes are top-level pages with no event in the path, so the
  * event has to come from somewhere: this reads `?eventId=`, and falls back to
  * the running rally — the first active event, then the newest — so an organizer
  * who clicks "Tasks" during the event lands on the right one without choosing.

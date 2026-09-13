@@ -167,8 +167,12 @@ export function useEventSocket(
       };
 
       next.onclose = (closeEvent: CloseEvent) => {
-        setConnected(false);
+        // Disposed first: cleanup closes the old socket, and its onclose can
+        // land after the replacement has already opened. Flipping connected
+        // before the check would report the live socket as offline.
         if (disposed) return;
+
+        setConnected(false);
 
         loggerRef.current.debug("live socket closed", closeEvent.code, closeEvent.reason);
         scheduleRetry();
