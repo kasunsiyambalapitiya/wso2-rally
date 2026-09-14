@@ -41,10 +41,30 @@ type OrganizerValidator interface {
 // carry our own issuer; anything else is handed to the organizer validator.
 // A token that satisfies neither is a 401 — the response never says which
 // check failed.
+//
+// The credential must arrive in the Authorization header. Only AuthWS also
+// reads the WebSocket subprotocol.
 func Auth(cfg config.Config, organizer OrganizerValidator) func(http.Handler) http.Handler {
+	return authenticate(cfg, organizer, false)
+}
+
+// AuthWS is Auth with the WebSocket subprotocol fallback enabled. Mount it on
+// the upgrade route and nowhere else.
+//
+// A browser can set no header on a handshake, so the token has to ride in the
+// subprotocol list there. Gating that on an Upgrade header would not scope it:
+// any client can set one on an ordinary REST call, which would leave a second
+// credential channel open across the whole API. Route mounting is the gate.
+func AuthWS(cfg config.Config, organizer OrganizerValidator) func(http.Handler) http.Handler {
+	return authenticate(cfg, organizer, true)
+}
+
+func authenticate(
+	cfg config.Config, organizer OrganizerValidator, allowSubprotocol bool,
+) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			raw, ok := bearerToken(r)
+			raw, ok := bearerToken(r, allowSubprotocol)
 			if !ok {
 				httpx.WriteUnauthorized(w)
 				return
@@ -111,16 +131,66 @@ func requireKind(kind authz.Kind, next http.Handler) http.Handler {
 	})
 }
 
-// bearerToken extracts the credential from an Authorization header. The scheme
-// match is case-insensitive per RFC 7235; the token itself is not trimmed
-// beyond surrounding spaces.
-func bearerToken(r *http.Request) (string, bool) {
+// bearerToken extracts the credential from an Authorization header, falling
+// back to the WebSocket subprotocol list only where the caller allows it.
+//
+// The header is authoritative where both are present: preferring the
+// subprotocol would let one override the credential the caller actually
+// authenticated with.
+func bearerToken(r *http.Request, allowSubprotocol bool) (string, bool) {
+	fallback := func() (string, bool) {
+		if !allowSubprotocol {
+			return "", false
+		}
+
+		return subprotocolToken(r)
+	}
+
 	header := r.Header.Get("Authorization")
 	if len(header) < len(bearerPrefix) || !strings.EqualFold(header[:len(bearerPrefix)], bearerPrefix) {
-		return "", false
+		return fallback()
 	}
 
 	token := strings.TrimSpace(header[len(bearerPrefix):])
+	if token == "" {
+		return fallback()
+	}
 
-	return token, token != ""
+	return token, true
+}
+
+// subprotocolToken reads the token a browser offered as
+// `Sec-WebSocket-Protocol: rally-bearer, <token>`.
+//
+// It is reached only from AuthWS, which is mounted on the upgrade route alone.
+//
+// Only the entry immediately after the marker counts. Anything else — the
+// marker alone, some other protocol, a name that merely starts the same way —
+// yields nothing, so a malformed handshake is a 401 rather than a guess.
+func subprotocolToken(r *http.Request) (string, bool) {
+	offered := r.Header.Values("Sec-WebSocket-Protocol")
+	if len(offered) == 0 {
+		return "", false
+	}
+
+	// The header may arrive as one comma-separated list or as repeated headers.
+	var protocols []string
+	for _, value := range offered {
+		for entry := range strings.SplitSeq(value, ",") {
+			protocols = append(protocols, strings.TrimSpace(entry))
+		}
+	}
+
+	for i, protocol := range protocols {
+		if protocol != authz.BearerSubprotocol {
+			continue
+		}
+		if i+1 < len(protocols) && protocols[i+1] != "" {
+			return protocols[i+1], true
+		}
+
+		return "", false
+	}
+
+	return "", false
 }
