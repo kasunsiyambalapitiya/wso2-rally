@@ -517,7 +517,7 @@ func TestService_Create_RequiresAnEmailPerCrewMember(t *testing.T) {
 }
 
 func TestService_Create_RejectsAnEmailThatIsNotOne(t *testing.T) {
-	for _, email := range []string{"nimal", "nimal@", "@wso2.com", "nimal wso2.com"} {
+	for _, email := range []string{"nimal", "nimal@", "@wso2.com", "nimal wso2.com", "nimal@invalid@wso2.com"} {
 		t.Run(email, func(t *testing.T) {
 			in := validInput()
 			in.Crew[0].Email = email

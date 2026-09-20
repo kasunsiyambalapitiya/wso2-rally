@@ -230,4 +230,28 @@ describe("the provider rate limit", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(Date.now() - startedAt).toBeGreaterThanOrEqual(1_000);
   });
+
+  // The sequential test above never has two calls enter throttle() before
+  // either resumes, so it cannot see this: a call that must wait reads
+  // lastRequestAt before updating it, so two calls racing off the same recent
+  // timestamp compute the same deadline and resume together. That sends two
+  // requests in the same instant instead of spacing them a second apart —
+  // the shape of an organizer pressing Enter twice in quick succession.
+  it("still spaces overlapping searches a second apart, not together", async () => {
+    const callTimes: number[] = [];
+    fetchMock.mockImplementation(() => {
+      callTimes.push(Date.now());
+
+      return Promise.resolve(jsonResponse([]));
+    });
+
+    // The first call never has to wait — a fresh module has no prior request —
+    // so it is what the next two race against, not a race itself.
+    await searchPlace("colombo");
+
+    await Promise.all([searchPlace("kandy"), searchPlace("galle")]);
+
+    expect(callTimes).toHaveLength(3);
+    expect(callTimes[2] - callTimes[1]).toBeGreaterThanOrEqual(900);
+  });
 });

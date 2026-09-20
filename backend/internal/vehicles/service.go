@@ -359,7 +359,10 @@ func normalizeCrewEmail(name, email string) (string, error) {
 	}
 
 	local, domain, found := strings.Cut(normalized, "@")
-	if !found || local == "" || domain == "" || strings.ContainsAny(normalized, " \t") {
+	// strings.Cut splits on the first "@" only, so "a@b@c" would otherwise pass
+	// with domain="b@c". strings.Count catches the second "@" that Cut hides.
+	if !found || local == "" || domain == "" ||
+		strings.Count(normalized, "@") != 1 || strings.ContainsAny(normalized, " \t") {
 		return "", apperr.Validationf("crew member %q has %q, which is not an email address", name, email)
 	}
 

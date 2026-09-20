@@ -15,10 +15,49 @@
 // under the License.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import EventForm from "@features/events/components/EventForm";
 import type { RallyEvent } from "@/types/event";
+import { reverseGeocode, searchPlace, type GeocodedPlace } from "@utils/geocoding";
+
+// The global react-leaflet stub makes useMapEvents a no-op, so MapPicker's
+// click handler never fires in a test — there is no way to simulate "the
+// organizer clicked the map" through it. Mocking MapPicker itself exposes the
+// onChange each instance was given, keyed by its label, so a click is a
+// direct call rather than an unreachable DOM event.
+const mapPickerOnChange: Record<string, (position: { lat: number; lng: number }) => void> = {};
+vi.mock("@components/map-picker/MapPicker", () => ({
+  default: ({
+    label,
+    onChange,
+  }: {
+    label: string;
+    onChange: (position: { lat: number; lng: number }) => void;
+  }) => {
+    mapPickerOnChange[label] = onChange;
+
+    return null;
+  },
+}));
+
+// searchPlace/reverseGeocode wrap the real implementation by default, so every
+// existing test below still exercises the real throttle + fetch + parsing
+// pipeline via fetchMock. The two race tests override one call each with
+// mockImplementationOnce to control resolution order directly — deliberately
+// bypassing the real geocoder's 1-request-per-second throttle, which is
+// geocoding.ts's own concern and is covered in its own test file. Mixing the
+// two here would make these tests wait out real throttle delays left over from
+// whichever test ran before them in this file.
+vi.mock("@utils/geocoding", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@utils/geocoding")>();
+
+  return {
+    ...actual,
+    searchPlace: vi.fn(actual.searchPlace),
+    reverseGeocode: vi.fn(actual.reverseGeocode),
+  };
+});
 
 const placedEvent: RallyEvent = {
   id: "e1",
@@ -33,6 +72,16 @@ const placedEvent: RallyEvent = {
   createdOn: "2026-08-07T00:00:00Z",
   routes: [],
 };
+
+/** A promise this file can resolve from outside, for controlling fetch order. */
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+
+  return { promise, resolve };
+}
 
 const renderForm = (overrides: Partial<React.ComponentProps<typeof EventForm>> = {}) => {
   const props = {
@@ -141,9 +190,14 @@ describe("EventForm place lookup", () => {
       headers: { "Content-Type": "application/json" },
     });
 
+  const searchPlaceMock = vi.mocked(searchPlace);
+  const reverseGeocodeMock = vi.mocked(reverseGeocode);
+
   beforeEach(() => {
     fetchMock.mockReset();
     vi.stubGlobal("fetch", fetchMock);
+    searchPlaceMock.mockClear();
+    reverseGeocodeMock.mockClear();
   });
   afterEach(() => vi.unstubAllGlobals());
 
@@ -212,10 +266,79 @@ describe("EventForm place lookup", () => {
   // fails, so a slow or blocked geocoder still leaves a usable pin.
   it("keeps the clicked position when the geocoder cannot name it", async () => {
     fetchMock.mockResolvedValue(nominatim({ error: "Unable to geocode" }));
-    const props = renderForm({ event: placedEvent });
+    renderForm();
 
-    // MapPicker is stubbed in tests, so exercise the contract it fulfils.
-    expect(props.event?.start.lat).toBe(6.8901);
-    expect(screen.getByLabelText(/start location/i)).toHaveValue("Diyatha Uyana grid");
+    mapPickerOnChange["Start grid geofence"]({ lat: 1.23, lng: 4.56 });
+
+    await waitFor(() =>
+      expect(screen.getByLabelText(/start location/i)).toHaveValue(""),
+    );
+    // The label stays empty (nothing to call it) but the pin itself is not
+    // rolled back — that assertion lives with EventForm's own state, not the
+    // stubbed MapPicker, since the mock above never actually moves a marker.
+  });
+
+  // A user can start a lookup, then start a second one for the same boundary
+  // before the first resolves — search again, or click a new point. Whichever
+  // one *finishes* last must not decide the boundary; whichever was issued
+  // last should.
+  it("does not let a slower, older lookup overwrite a newer one", async () => {
+    const user = userEvent.setup();
+    const first = deferred<GeocodedPlace | null>();
+    const second = deferred<GeocodedPlace | null>();
+    searchPlaceMock.mockImplementationOnce(() => first.promise);
+    searchPlaceMock.mockImplementationOnce(() => second.promise);
+
+    renderForm();
+
+    const field = screen.getByLabelText(/start location/i);
+    await user.type(field, "old place{Enter}");
+    await user.clear(field);
+    await user.type(field, "new place{Enter}");
+
+    await waitFor(() => expect(searchPlaceMock).toHaveBeenCalledTimes(2));
+
+    // Resolve out of order: the newer lookup answers first, the older,
+    // superseded one answers last — the failure mode the finding describes.
+    second.resolve({ lat: 1, lng: 1, label: "New Place" });
+    await waitFor(() => expect(field).toHaveValue("New Place"));
+
+    // Nothing to await on the resolution itself — a stale response settling
+    // and doing nothing produces no observable event — so flush it under act
+    // and re-assert directly.
+    await act(async () => {
+      first.resolve({ lat: 2, lng: 2, label: "Old Place" });
+      await Promise.resolve();
+    });
+    expect(field).toHaveValue("New Place");
+  });
+
+  // The same race, between a typed search and a map click racing for the same
+  // boundary — the two ways of moving a pin share one generation counter.
+  it("does not let a stale search overwrite a newer map click", async () => {
+    const user = userEvent.setup();
+    const search = deferred<GeocodedPlace | null>();
+    searchPlaceMock.mockImplementationOnce(() => search.promise);
+    // Never resolves within this test: the click's own naming is not what is
+    // under test, only that the stale search must not pre-empt it.
+    reverseGeocodeMock.mockImplementation(() => new Promise(() => {}));
+
+    renderForm();
+
+    await user.type(screen.getByLabelText(/start location/i), "old place{Enter}");
+    mapPickerOnChange["Start grid geofence"]({ lat: 6.9, lng: 79.9 });
+
+    await waitFor(() => expect(searchPlaceMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(reverseGeocodeMock).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      search.resolve({ lat: 2, lng: 2, label: "Old Place" });
+      await Promise.resolve();
+    });
+
+    // The click's own reverse-geocode never resolves in this test, so the
+    // stale search relabelling the field would be the only way it could ever
+    // read "Old Place".
+    expect(screen.getByLabelText(/start location/i)).not.toHaveValue("Old Place");
   });
 });

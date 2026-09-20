@@ -14,7 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import { useCallback, useState, type FormEvent, type JSX, type KeyboardEvent } from "react";
+import { useCallback, useRef, useState, type FormEvent, type JSX, type KeyboardEvent } from "react";
 import {
   Box,
   Button,
@@ -138,6 +138,13 @@ export default function EventForm({
   const [locating, setLocating] = useState<"start" | "end" | null>(null);
   const [notFound, setNotFound] = useState<"start" | "end" | null>(null);
 
+  // Guards against a stale lookup overwriting a newer one. A search and a map
+  // click both write here, and two lookups for the same boundary can be in
+  // flight together — an organizer searches again, or clicks a new point,
+  // before the first answers. Only the request that is still current when it
+  // resolves may touch state; the loser of the race is simply ignored.
+  const requestGeneration = useRef<Record<"start" | "end", number>>({ start: 0, end: 0 });
+
   /**
    * Moves a boundary's pin to whatever the organizer typed.
    *
@@ -150,9 +157,15 @@ export default function EventForm({
         return;
       }
 
+      const generation = ++requestGeneration.current[which];
       setLocating(which);
       setNotFound(null);
       const found = await searchPlace(query);
+      if (requestGeneration.current[which] !== generation) {
+        // Superseded by a newer lookup for this boundary; whatever that one
+        // sets is authoritative, not this stale answer.
+        return;
+      }
       setLocating(null);
 
       if (!found) {
@@ -177,11 +190,15 @@ export default function EventForm({
    */
   const placeAndName = useCallback(
     async (which: "start" | "end", position: { lat: number; lng: number }) => {
+      const generation = ++requestGeneration.current[which];
       setBoundary(which, position);
       setNotFound(null);
 
       setLocating(which);
       const name = await reverseGeocode(position.lat, position.lng);
+      if (requestGeneration.current[which] !== generation) {
+        return;
+      }
       setLocating(null);
 
       if (name) {

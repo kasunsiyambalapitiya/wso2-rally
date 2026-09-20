@@ -112,13 +112,23 @@ export function shortPlaceName(place: NominatimPlace): string {
 
 let lastRequestAt = 0;
 
+// The tail of the throttle queue: each call chains onto whatever is already
+// waiting, so two calls issued together compute their deadlines one after the
+// other rather than both reading the same lastRequestAt and resuming as one.
+let queue: Promise<void> = Promise.resolve();
+
 /** Spaces requests out to honour the provider's rate limit. */
-async function throttle(): Promise<void> {
-  const wait = lastRequestAt + MIN_REQUEST_INTERVAL_MS - Date.now();
-  if (wait > 0) {
-    await new Promise((resolve) => setTimeout(resolve, wait));
-  }
-  lastRequestAt = Date.now();
+function throttle(): Promise<void> {
+  const turn = queue.then(() => {
+    const wait = lastRequestAt + MIN_REQUEST_INTERVAL_MS - Date.now();
+
+    return wait > 0 ? new Promise<void>((resolve) => setTimeout(resolve, wait)) : undefined;
+  });
+  queue = turn;
+
+  return turn.then(() => {
+    lastRequestAt = Date.now();
+  });
 }
 
 /**
