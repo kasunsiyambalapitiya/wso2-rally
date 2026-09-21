@@ -100,7 +100,7 @@ func newRouter(d deps) http.Handler {
 
 		// The handler checks the caller may listen to the topic it asked for
 		// before upgrading.
-		r.Get("/ws", wsHandler(hub, d.logger))
+		r.Get("/ws", wsHandler(d.cfg, hub, d.logger))
 	})
 
 	r.Group(func(r chi.Router) {

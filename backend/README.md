@@ -41,6 +41,13 @@ make docker-db
 If this fails with *"Rancher Desktop is not running"*, start Rancher Desktop (or
 Docker Desktop) first — nothing else in this section works without a database.
 
+If you already have a volume from before the `crew_member.email` migration was
+folded back into `0001`, re-create it (`docker compose down -v` then
+`make docker-db` again). `schema_migrations` already reads version 1 on that
+volume, so `golang-migrate` will not notice `0001` changed underneath it —
+`make run` will report success while the schema still has no `email` column,
+and `POST /sessions/join` will fail against it.
+
 **3. Run the server.** Migrations apply on boot, then it listens on `:8080`.
 
 ```bash

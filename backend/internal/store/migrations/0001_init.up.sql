@@ -99,10 +99,6 @@ CREATE TABLE crew_member (
   id             CHAR(32)     NOT NULL PRIMARY KEY,
   vehicle_id     CHAR(32)     NOT NULL,
   name           VARCHAR(200) NOT NULL,
-  -- A member joins their car's session by typing the last four digits of this
-  -- number. Stored whole so the roster stays useful to organizers, but never
-  -- returned to a phone: only the last four are ever compared, server-side.
-  --
   -- The address the super app authenticates this member by. The in-car app is
   -- embedded in the WSO2 Open Super App, so a joining phone presents an
   -- Asgardeo token and POST /sessions/join matches its email claim against

@@ -105,7 +105,7 @@ func RequireOrganizer(cfg config.Config) func(http.Handler) http.Handler {
 			// be listed in both. Note this is *any*, not authz.CheckRoles,
 			// which requires every role it is given.
 			if !identity.IsOrganizer() ||
-				!hasAnyRole(identity.Groups, cfg.OrganizerRole, cfg.AdminRole) {
+				!HasAnyRole(identity.Groups, cfg.OrganizerRole, cfg.AdminRole) {
 				httpx.WriteError(w, http.StatusForbidden, httpx.MsgForbidden)
 				return
 			}
@@ -140,13 +140,17 @@ func RequireAdmin(cfg config.Config) func(http.Handler) http.Handler {
 	}
 }
 
-// hasAnyRole reports whether have contains at least one of the named roles.
+// HasAnyRole reports whether have contains at least one of the named roles.
 //
 // Empty role names are skipped rather than matched: an unset ORGANIZER_ROLE must
 // not turn into a group everybody is in. If every candidate is empty this
 // returns false, so a misconfigured deployment locks the surface rather than
 // opening it.
-func hasAnyRole(have []string, anyOf ...string) bool {
+//
+// Exported: wsHandler's own organizer branch needs the identical check, since
+// an Asgardeo token resolves to organizer *kind* regardless of group, and
+// /ws mounts under Auth rather than RequireOrganizer.
+func HasAnyRole(have []string, anyOf ...string) bool {
 	for _, role := range anyOf {
 		if role != "" && slices.Contains(have, role) {
 			return true
