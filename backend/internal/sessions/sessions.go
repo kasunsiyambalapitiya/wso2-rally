@@ -255,6 +255,10 @@ type SessionState struct {
 	// You is the calling phone's own row, so it can tell itself apart from the
 	// rest of Crew without matching on ids client-side.
 	You Device
+	// CoverageLost is true while the car is on the course and no phone has
+	// reported for CoverageAlarmAfter — the same rule behind coverage_lost, so a
+	// phone that opens mid-outage shows the warning the frames would have.
+	CoverageLost bool
 }
 
 // Voucher is what a crew collects at the finish.

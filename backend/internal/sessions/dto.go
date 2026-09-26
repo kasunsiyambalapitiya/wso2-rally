@@ -77,6 +77,10 @@ type SessionStateDTO struct {
 	// warns its owner when this is 1 and it is them, before they pocket the
 	// phone the whole car is relying on.
 	SharingCount int `json:"sharingCount"`
+	// CoverageLost is true while the car is on the course and no phone has
+	// reported for 30 s. Stricter than SharingCount reaching zero, which uses
+	// the looser 90 s sharing window: this is the value to drive the warning.
+	CoverageLost bool `json:"coverageLost"`
 }
 
 // JoinRequest is the POST /sessions/join body.
@@ -280,6 +284,7 @@ func toStateDTO(state SessionState, now time.Time) SessionStateDTO {
 		Crew:           crew,
 		You:            toDeviceDTO(state.You, now),
 		SharingCount:   sharingCount(crew),
+		CoverageLost:   state.CoverageLost,
 	}
 }
 

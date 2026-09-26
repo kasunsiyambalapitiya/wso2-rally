@@ -47,8 +47,8 @@ type deps struct {
 	logger    *slog.Logger
 	organizer middleware.OrganizerValidator
 	// background bounds the work that runs beside the request path — today,
-	// the start-signal scheduler. Nil runs none of it, which is what a test
-	// that only exercises routes wants.
+	// the start-signal and location-coverage checks. Nil runs none of it,
+	// which is what a test that only exercises routes wants.
 	background context.Context
 }
 
@@ -95,7 +95,10 @@ func newRouter(d deps) http.Handler {
 		d.cfg.EventZone,
 	)
 	if d.background != nil {
-		go runStartSignals(d.background, sessionsService.FireDueStartSignals, startSignalInterval, d.logger)
+		go runPeriodically(d.background, "start signal",
+			sessionsService.FireDueStartSignals, backgroundInterval, d.logger)
+		go runPeriodically(d.background, "location coverage",
+			sessionsService.CheckCoverage, backgroundInterval, d.logger)
 	}
 	sessionsHandler := sessions.NewHandler(sessionsService, d.logger)
 

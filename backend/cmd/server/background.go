@@ -22,17 +22,21 @@ import (
 	"time"
 )
 
-// startSignalInterval is how often the scheduler checks for a start that has
-// arrived. One second is what makes the release feel synchronised across a
-// grid of phones; the check is one small query, so it costs nothing.
-const startSignalInterval = time.Second
+// backgroundInterval is how often the in-car runtime's periodic checks run.
+//
+// One second is what makes the 09:00 release feel synchronised across a grid
+// of phones, and what keeps a dark car's warning within a second of the 30 s
+// threshold. Each check is one small query, so it costs nothing.
+const backgroundInterval = time.Second
 
-// runStartSignals calls fire on every tick until ctx is cancelled.
+// runPeriodically calls fire on every tick until ctx is cancelled.
 //
 // A failed tick is logged and the loop carries on: a database blip at 08:59
-// must not cancel the 09:00 start, and the service leaves an event it could not
-// release unfired so the next tick retries it.
-func runStartSignals(ctx context.Context, fire func(context.Context) error, interval time.Duration, logger *slog.Logger) {
+// must not cancel the 09:00 start, nor stop dark cars being noticed. The checks
+// it drives are written so a failed tick is retried by the next one.
+func runPeriodically(
+	ctx context.Context, name string, fire func(context.Context) error, interval time.Duration, logger *slog.Logger,
+) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
@@ -42,7 +46,7 @@ func runStartSignals(ctx context.Context, fire func(context.Context) error, inte
 			return
 		case <-ticker.C:
 			if err := fire(ctx); err != nil {
-				logger.Error("start signal check failed", "error", err)
+				logger.Error("periodic check failed", "check", name, "error", err)
 			}
 		}
 	}

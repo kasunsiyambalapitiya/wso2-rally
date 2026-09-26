@@ -183,6 +183,44 @@ func (r *sqlRepo) LiveSessionIDsOf(ctx context.Context, eventID string) ([]strin
 	return ids, nil
 }
 
+// ActiveSessionCoverage lists every run on the course with the latest report
+// from any of its phones. It reads session_device.last_seen_at — stamped when a
+// report arrives — so "covered" means the same thing here as a phone's own
+// "sharing" flag: a phone was heard from, not that a fix was accepted.
+func (r *sqlRepo) ActiveSessionCoverage(ctx context.Context) ([]SessionCoverage, error) {
+	const query = `
+		SELECT s.id, s.event_id, v.code, MAX(d.last_seen_at)
+		FROM team_session s
+		JOIN vehicle v ON v.id = s.vehicle_id
+		LEFT JOIN session_device d ON d.session_id = s.id
+		WHERE s.status = 'active'
+		GROUP BY s.id, s.event_id, v.code`
+
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("select coverage of active sessions: %w", err)
+	}
+	defer rows.Close()
+
+	var cars []SessionCoverage
+	for rows.Next() {
+		var (
+			car          SessionCoverage
+			lastReportAt sql.NullTime
+		)
+		if err := rows.Scan(&car.SessionID, &car.EventID, &car.VehicleCode, &lastReportAt); err != nil {
+			return nil, fmt.Errorf("scan session coverage: %w", err)
+		}
+		car.LastReportAt = timePtr(lastReportAt)
+		cars = append(cars, car)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate session coverage: %w", err)
+	}
+
+	return cars, nil
+}
+
 // deviceColumns is the shared select list, joined to crew_member so a phone can
 // be labelled with its owner's name without a second round trip.
 const deviceColumns = `

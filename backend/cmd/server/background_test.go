@@ -30,7 +30,7 @@ import (
 
 // The scheduler must keep ticking after a failure: one database blip at 08:59
 // cannot be allowed to cancel the 09:00 start.
-func TestRunStartSignals_KeepsTickingThroughErrors(t *testing.T) {
+func TestRunPeriodically_KeepsTickingThroughErrors(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var calls atomic.Int32
@@ -41,7 +41,7 @@ func TestRunStartSignals_KeepsTickingThroughErrors(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		runStartSignals(ctx, fire, time.Millisecond, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		runPeriodically(ctx, "test", fire, time.Millisecond, slog.New(slog.NewTextHandler(io.Discard, nil)))
 		close(done)
 	}()
 
@@ -50,6 +50,6 @@ func TestRunStartSignals_KeepsTickingThroughErrors(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("runStartSignals did not stop when its context was cancelled")
+		t.Fatal("runPeriodically did not stop when its context was cancelled")
 	}
 }

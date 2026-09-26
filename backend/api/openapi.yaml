@@ -1430,7 +1430,25 @@ components:
         totalScore: { type: integer }
         lastLat: { type: number, nullable: true }
         lastLng: { type: number, nullable: true }
-        lastSeenAt: { type: string, format: date-time, nullable: true }
+        lastSeenAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the car's last accepted fix was taken.
+        lastReportAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: |
+            When any phone in the car last reported, stamped on arrival. A
+            replayed buffer carries old fix times, so this — not lastSeenAt —
+            says whether the car is covered right now.
+        coverageLost:
+          type: boolean
+          description: |
+            A car on the course whose phones have all been silent for over 30
+            seconds. Live changes arrive as coverage_lost / coverage_restored
+            on the event topic.
 
     DebriefVideo:
       type: object
@@ -1506,6 +1524,36 @@ components:
                 type: array
                 items: { type: string }
         nextWaypointId: { type: string }
+        crew:
+          type: array
+          description: Every phone in the car, including this one, in join order.
+          items: { $ref: "#/components/schemas/Device" }
+        you: { $ref: "#/components/schemas/Device" }
+        sharingCount:
+          type: integer
+          description: |
+            How many phones reported in the last 90 seconds. Drives the
+            "who is sharing" indicator; generous so it does not flicker.
+        coverageLost:
+          type: boolean
+          description: |
+            True while the car is on the course and no phone has reported for
+            30 seconds — the rule behind the coverage_lost frame. Stricter than
+            sharingCount reaching zero; this is the value to drive the warning
+            that asks a passenger to keep the rally app open.
+
+    Device:
+      type: object
+      description: One phone in the car.
+      properties:
+        id: { type: string }
+        crewMemberId: { type: string }
+        crewMemberName: { type: string }
+        joinedAt: { type: string, format: date-time }
+        lastSeenAt: { type: string, format: date-time, nullable: true }
+        sharing:
+          type: boolean
+          description: Reported in the last 90 seconds. Computed server-side so every phone agrees.
 
     PingResponse:
       type: object

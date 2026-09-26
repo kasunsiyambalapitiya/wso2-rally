@@ -69,6 +69,16 @@ type fakeRepo struct {
 	activeEvents    []StartingEvent
 	liveSessionIDs  map[string][]string
 	liveSessionsErr error
+	// coverage feeds CheckCoverage.
+	coverage    []SessionCoverage
+	coverageErr error
+}
+
+func (f *fakeRepo) ActiveSessionCoverage(context.Context) ([]SessionCoverage, error) {
+	if f.coverageErr != nil {
+		return nil, f.coverageErr
+	}
+	return f.coverage, nil
 }
 
 func (f *fakeRepo) ActiveEvents(context.Context) ([]StartingEvent, error) {

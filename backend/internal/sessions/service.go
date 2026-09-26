@@ -91,6 +91,9 @@ type Repo interface {
 	// LiveSessionIDsOf lists the event's bound and active runs — the phones a
 	// start signal has to reach.
 	LiveSessionIDsOf(ctx context.Context, eventID string) ([]string, error)
+	// ActiveSessionCoverage lists every run on the course with the last time
+	// any of its phones reported.
+	ActiveSessionCoverage(ctx context.Context) ([]SessionCoverage, error)
 }
 
 // AlertRaiser is the slice of the alerts service this package needs, so a crew
@@ -145,6 +148,11 @@ type Service struct {
 	// startedMu guards started, the events whose start signal has gone out.
 	startedMu sync.Mutex
 	started   map[string]struct{}
+
+	// darkMu guards dark, the cars currently announced as having no phone
+	// sharing location, keyed by session.
+	darkMu sync.Mutex
+	dark   map[string]SessionCoverage
 }
 
 // NewService wires a Service. A nil broadcaster becomes a no-op so the service
@@ -165,6 +173,7 @@ func NewService(
 		now:     func() time.Time { return time.Now().UTC() },
 		zone:    zone,
 		started: map[string]struct{}{},
+		dark:    map[string]SessionCoverage{},
 	}
 }
 
@@ -340,12 +349,18 @@ func (s *Service) State(ctx context.Context, sessionID, deviceID string) (Sessio
 		Waypoints:    waypoints,
 		Crew:         crew,
 	}
+	var lastReportAt *time.Time
 	for _, device := range crew {
 		if device.ID == deviceID {
 			state.You = device
-			break
+		}
+		if device.LastSeenAt != nil && (lastReportAt == nil || device.LastSeenAt.After(*lastReportAt)) {
+			lastReportAt = device.LastSeenAt
 		}
 	}
+	// Only a car on the course is expected to be reporting; a crew still on the
+	// grid has not started, and that is not an outage.
+	state.CoverageLost = session.Status == StatusActive && CoverageLost(lastReportAt, s.now())
 	// The cipher is part of the 09:00 start. Publishing an event opens it to
 	// crews, which can be days earlier, so "active" alone must not reveal it.
 	// A start that cannot be read cannot be judged, and a guard that cannot

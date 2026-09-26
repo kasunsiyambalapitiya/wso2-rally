@@ -147,3 +147,36 @@ func TestRepo_LiveSessionIDsOf_OnlyBoundAndActive(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{session.ID}, ids)
 }
+
+// Coverage is the latest report from *any* phone in the car: the driver's has
+// gone quiet in Google Maps, and the passenger's is what keeps it covered.
+func TestRepo_ActiveSessionCoverage_TakesTheLatestPhone(t *testing.T) {
+	db := storetest.DB(t)
+	repo, session := seedBoundSession(t, db)
+	ctx := context.Background()
+	session.Status = StatusActive
+	require.NoError(t, repo.UpdateSession(ctx, session))
+
+	driverSeen := time.Date(2027, 2, 13, 9, 40, 0, 0, time.UTC)
+	passengerSeen := time.Date(2027, 2, 13, 9, 45, 0, 0, time.UTC)
+	for name, seen := range map[string]time.Time{"Driver": driverSeen, "Passenger": passengerSeen} {
+		memberID := store.NewID()
+		_, err := db.Exec(
+			"INSERT INTO crew_member (id, vehicle_id, name, email, phone_number, role) "+
+				"VALUES (?, ?, ?, ?, '+94 77 000 0000', 'node')",
+			memberID, session.VehicleID, name, name+"@wso2.com")
+		require.NoError(t, err)
+		device, err := repo.UpsertDevice(ctx, session.ID, memberID)
+		require.NoError(t, err)
+		require.NoError(t, repo.TouchDevice(ctx, device.ID, seen))
+	}
+
+	cars, err := repo.ActiveSessionCoverage(ctx)
+
+	require.NoError(t, err)
+	require.Len(t, cars, 1)
+	require.Equal(t, session.ID, cars[0].SessionID)
+	require.Equal(t, "PKT-001", cars[0].VehicleCode)
+	require.NotNil(t, cars[0].LastReportAt)
+	require.True(t, passengerSeen.Equal(*cars[0].LastReportAt), "got %s", cars[0].LastReportAt)
+}
