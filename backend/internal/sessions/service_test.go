@@ -65,6 +65,21 @@ type fakeRepo struct {
 	devices map[string]map[string]Device
 	// visits is keyed sessionID -> waypointID, mirroring session_waypoint_visit.
 	visits map[string]map[string]bool
+	// activeEvents and liveSessionIDs feed the start-signal scheduler.
+	activeEvents    []StartingEvent
+	liveSessionIDs  map[string][]string
+	liveSessionsErr error
+}
+
+func (f *fakeRepo) ActiveEvents(context.Context) ([]StartingEvent, error) {
+	return f.activeEvents, nil
+}
+
+func (f *fakeRepo) LiveSessionIDsOf(_ context.Context, eventID string) ([]string, error) {
+	if f.liveSessionsErr != nil {
+		return nil, f.liveSessionsErr
+	}
+	return f.liveSessionIDs[eventID], nil
 }
 
 func newFakeRepo() *fakeRepo {
@@ -82,6 +97,7 @@ func newFakeRepo() *fakeRepo {
 		event: EventInfo{
 			Status:    "active",
 			Cipher:    "API Integration",
+			Date:      "2027-02-13",
 			StartTime: "09:00",
 			Start:     GeoCircle{Lat: 6.8901, Lng: 79.9200, RadiusM: 40, Placed: true},
 			Finish:    GeoCircle{Lat: 6.8480, Lng: 79.9280, RadiusM: 30, Placed: true},
@@ -345,7 +361,7 @@ func newService(t *testing.T) (*Service, *fakeRepo, *recordingAlerts, *[]broadca
 	var sent []broadcastRecord
 	svc := NewService(repo, stubMinter{}, alertRaiser, func(topic string, message any) {
 		sent = append(sent, broadcastRecord{topic: topic, message: message})
-	})
+	}, colombo)
 
 	return svc, repo, alertRaiser, &sent
 }
@@ -489,6 +505,7 @@ func TestService_Join_RequiresVehicleAndCaller(t *testing.T) {
 func TestService_State_RevealsCipherOnlyWhenActive(t *testing.T) {
 	svc, repo, _, _ := newService(t)
 	session := bindOnce(t, svc)
+	frozenClock(svc, nineAM.Add(time.Hour))
 
 	active, err := svc.State(context.Background(), session.ID, "")
 	require.NoError(t, err)

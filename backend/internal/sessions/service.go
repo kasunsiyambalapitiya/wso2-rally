@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/alerts"
@@ -84,6 +85,12 @@ type Repo interface {
 	// SaveSubmission stores an attempt and returns the session's recomputed
 	// total, so a resubmission corrects the score instead of adding to it.
 	SaveSubmission(ctx context.Context, sub Submission) (int, error)
+	// ActiveEvents lists the events crews may currently run, for the start
+	// signal scheduler.
+	ActiveEvents(ctx context.Context) ([]StartingEvent, error)
+	// LiveSessionIDsOf lists the event's bound and active runs — the phones a
+	// start signal has to reach.
+	LiveSessionIDsOf(ctx context.Context, eventID string) ([]string, error)
 }
 
 // AlertRaiser is the slice of the alerts service this package needs, so a crew
@@ -132,18 +139,32 @@ type Service struct {
 	// now is the service's clock. It is a field so tests can place fix
 	// timestamps precisely around it; production always uses time.Now.
 	now func() time.Time
+	// zone is the rally's wall clock: an event's "09:00" is read in it.
+	zone *time.Location
+
+	// startedMu guards started, the events whose start signal has gone out.
+	startedMu sync.Mutex
+	started   map[string]struct{}
 }
 
 // NewService wires a Service. A nil broadcaster becomes a no-op so the service
 // is usable before the realtime hub exists.
-func NewService(repo Repo, minter TokenMinter, alertRaiser AlertRaiser, broadcast Broadcaster) *Service {
+//
+// zone is the rally's wall clock, the zone an organizer means when they type
+// "09:00". It is required: config.Load resolves it and refuses to start on a
+// zone it cannot load, because a wrong zone releases every car hours off.
+func NewService(
+	repo Repo, minter TokenMinter, alertRaiser AlertRaiser, broadcast Broadcaster, zone *time.Location,
+) *Service {
 	if broadcast == nil {
 		broadcast = func(string, any) {}
 	}
 
 	return &Service{
 		repo: repo, minter: minter, alerts: alertRaiser, broadcast: broadcast,
-		now: func() time.Time { return time.Now().UTC() },
+		now:     func() time.Time { return time.Now().UTC() },
+		zone:    zone,
+		started: map[string]struct{}{},
 	}
 }
 
@@ -325,10 +346,19 @@ func (s *Service) State(ctx context.Context, sessionID, deviceID string) (Sessio
 			break
 		}
 	}
-	// The cipher is part of the start signal; withholding it until the event
-	// is active keeps it off the wire during setup.
-	if event.IsActive() {
-		state.Cipher = event.Cipher
+	// The cipher is part of the 09:00 start. Publishing an event opens it to
+	// crews, which can be days earlier, so "active" alone must not reveal it.
+	// A start that cannot be read cannot be judged, and a guard that cannot
+	// judge denies: the cipher stays withheld rather than going out early.
+	startsAt, err := startInstant(event.Date, event.StartTime, s.zone)
+	if err != nil {
+		s.logger().Error("could not read the event start; withholding the cipher",
+			"event_id", session.EventID, "error", err)
+	} else {
+		state.StartsAt = startsAt
+		if event.IsActive() && !s.now().Before(startsAt) {
+			state.Cipher = event.Cipher
+		}
 	}
 	state.NextWaypointID = nextWaypointID(waypoints, session.CurrentWaypointID)
 
@@ -694,6 +724,82 @@ func (s *Service) claimVisits(ctx context.Context, sessionID string, result *Pin
 }
 
 func (s *Service) logger() *slog.Logger { return slog.Default() }
+
+// startSignalWindow is how long after the start a signal may still go out.
+//
+// It bounds a server restart: one that comes back at 09:02 still releases the
+// grid, one that comes back at noon does not announce a 09:00 start. A phone
+// that misses the frame is not stranded either way — GET /sessions/me carries
+// the start instant and, once it has passed, the cipher.
+const startSignalWindow = 5 * time.Minute
+
+// FireDueStartSignals releases every bound car of every event whose start has
+// just arrived: a start_signal and the cipher, on each live session's topic.
+//
+// It is meant to be called every second. Each event fires once per process;
+// a restart inside startSignalWindow fires it again, so clients must treat
+// both messages as idempotent — which they are, since each only moves a phone
+// to a screen it may already be on.
+//
+// An event whose start cannot be read, or whose sessions cannot be listed, is
+// reported and left unfired so the next tick retries it. Neither stops the
+// other events from starting.
+func (s *Service) FireDueStartSignals(ctx context.Context) error {
+	events, err := s.repo.ActiveEvents(ctx)
+	if err != nil {
+		return fmt.Errorf("list active events: %w", err)
+	}
+
+	now := s.now()
+	var errs []error
+	for _, event := range events {
+		startsAt, err := startInstant(event.Date, event.StartTime, s.zone)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("event %s: %w", event.ID, err))
+			continue
+		}
+		if now.Before(startsAt) || now.Sub(startsAt) > startSignalWindow || s.hasStarted(event.ID) {
+			continue
+		}
+
+		sessionIDs, err := s.repo.LiveSessionIDsOf(ctx, event.ID)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("list live sessions of event %s: %w", event.ID, err))
+			continue
+		}
+
+		for _, sessionID := range sessionIDs {
+			topic := SessionTopic(sessionID)
+			s.broadcast(topic, map[string]any{
+				"type":     "start_signal",
+				"startsAt": startsAt.Format(time.RFC3339),
+			})
+			// An empty reveal would blank the phone's cipher screen, so an
+			// event with none configured starts without one.
+			if event.Cipher != "" {
+				s.broadcast(topic, map[string]any{"type": "cipher_reveal", "cipher": event.Cipher})
+			}
+		}
+
+		s.markStarted(event.ID)
+		s.logger().Info("start signal sent", "event_id", event.ID, "sessions", len(sessionIDs))
+	}
+
+	return errors.Join(errs...)
+}
+
+func (s *Service) hasStarted(eventID string) bool {
+	s.startedMu.Lock()
+	defer s.startedMu.Unlock()
+	_, ok := s.started[eventID]
+	return ok
+}
+
+func (s *Service) markStarted(eventID string) {
+	s.startedMu.Lock()
+	defer s.startedMu.Unlock()
+	s.started[eventID] = struct{}{}
+}
 
 // publishPosition pushes the vehicle's position to the organizer's monitor.
 // A failure here costs a map marker, not the crew's ping, so it is not fatal.

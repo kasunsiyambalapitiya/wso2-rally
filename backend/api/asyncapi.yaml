@@ -219,20 +219,36 @@ components:
     StartSignal:
       name: start_signal
       summary: The synchronised 09:00 start. Every bound phone releases at once.
+      description: |
+        Sent to every bound or active session of the event within a second of
+        its start, read in the rally's zone (EVENT_TIME_ZONE). It is not sent
+        more than five minutes late: a server that comes back at noon does not
+        announce a 09:00 start.
+
+        Delivery is at least once. A server restart inside those five minutes
+        sends it again, so treat it as idempotent. A phone that was not
+        connected — or joined after the start — reads the same facts from
+        `GET /sessions/me` (`startsAt`, and the cipher once it has passed).
       payload:
         type: object
-        required: [type]
+        required: [type, startsAt]
         properties:
           type:
             type: string
             const: start_signal
+          startsAt:
+            type: string
+            format: date-time
+            description: The start instant this signal is for.
 
     CipherReveal:
       name: cipher_reveal
       summary: |
-        The rally cipher, withheld until the start. It is also readable from
-        `GET /sessions/me` once the event is active, for a phone that missed
-        the frame.
+        The rally cipher, withheld until the start. Sent immediately after
+        `start_signal`, on the same terms: at least once, idempotent, never
+        more than five minutes late. It is also readable from
+        `GET /sessions/me` once the start has passed, for a phone that missed
+        the frame. Not sent at all when the event has no cipher configured.
       payload:
         type: object
         required: [type, cipher]

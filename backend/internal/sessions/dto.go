@@ -58,11 +58,13 @@ type WaypointDTO struct {
 // SessionStateDTO is the whole in-car view: the session, the crew's course,
 // and the two geofences that bracket it.
 type SessionStateDTO struct {
-	Session        SessionDTO    `json:"session"`
-	VehicleCode    string        `json:"vehicleCode"`
-	TeamName       string        `json:"teamName"`
-	EventStatus    string        `json:"eventStatus"`
-	StartTime      string        `json:"startTime"`
+	Session     SessionDTO `json:"session"`
+	VehicleCode string     `json:"vehicleCode"`
+	TeamName    string     `json:"teamName"`
+	EventStatus string     `json:"eventStatus"`
+	StartTime   string     `json:"startTime"`
+	// StartsAt is the start as an instant (RFC 3339), null when unreadable.
+	StartsAt       *string       `json:"startsAt"`
 	Cipher         string        `json:"cipher"`
 	StartCircle    CircleDTO     `json:"startCircle"`
 	FinishCircle   CircleDTO     `json:"finishCircle"`
@@ -269,6 +271,7 @@ func toStateDTO(state SessionState, now time.Time) SessionStateDTO {
 		TeamName:       state.TeamName,
 		EventStatus:    state.EventStatus,
 		StartTime:      state.StartTime,
+		StartsAt:       startsAtOf(state.StartsAt),
 		Cipher:         state.Cipher,
 		StartCircle:    toCircleDTO(state.StartCircle),
 		FinishCircle:   toCircleDTO(state.FinishCircle),
@@ -341,4 +344,14 @@ func formatTime(t *time.Time) *string {
 	formatted := t.UTC().Format(time.RFC3339)
 
 	return &formatted
+}
+
+// startsAtOf renders the start instant, or null when the event's start could
+// not be read.
+func startsAtOf(t time.Time) *string {
+	if t.IsZero() {
+		return nil
+	}
+
+	return formatTime(&t)
 }

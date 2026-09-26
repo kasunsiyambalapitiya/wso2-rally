@@ -1474,10 +1474,24 @@ components:
         vehicleCode: { type: string }
         teamName: { type: string }
         eventStatus: { $ref: "#/components/schemas/EventStatus" }
-        startTime: { type: string }
+        startTime:
+          type: string
+          description: The wall-clock start as the organizer typed it, "HH:MM".
+        startsAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: |
+            The synchronised start as an instant, read in the rally's zone
+            (EVENT_TIME_ZONE). Count down to this rather than to startTime,
+            which carries no date or zone. Null when the event's start cannot
+            be read.
         cipher:
           type: string
-          description: Empty until the event is active.
+          description: |
+            Empty until the event is active *and* startsAt has passed.
+            Publishing opens an event to crews, which can be days before the
+            rally, so "active" alone does not reveal it.
         startCircle: { $ref: "#/components/schemas/Circle" }
         finishCircle: { $ref: "#/components/schemas/Circle" }
         waypoints:

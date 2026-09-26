@@ -88,3 +88,62 @@ func TestRepo_SessionTimestamps_KeepSubSecondPrecision(t *testing.T) {
 	require.True(t, finishedAt.Equal(*got.FinishedAt),
 		"finished_at breaks leaderboard ties, so it must not round, got %s", got.FinishedAt)
 }
+
+// The scheduler reads the rally day exactly as the organizer entered it. A
+// driver-side time-zone conversion of a DATE would shift it to the previous day
+// for any zone east of UTC — Colombo included — and fire a day early.
+func TestRepo_ActiveEvents_ReadsTheDateAsEntered(t *testing.T) {
+	db := storetest.DB(t)
+	_, session := seedBoundSession(t, db)
+	ctx := context.Background()
+	_, err := db.Exec("UPDATE event SET status = 'active', cipher = 'API Integration' WHERE id = ?", session.EventID)
+	require.NoError(t, err)
+
+	events, err := NewRepo(db).ActiveEvents(ctx)
+
+	require.NoError(t, err)
+	require.Equal(t, []StartingEvent{{
+		ID: session.EventID, Date: "2027-02-13", StartTime: "09:00", Cipher: "API Integration",
+	}}, events)
+
+	info, err := NewRepo(db).EventInfoOf(ctx, session.EventID)
+	require.NoError(t, err)
+	require.Equal(t, "2027-02-13", info.Date)
+}
+
+func TestRepo_ActiveEvents_SkipsEventsNotYetPublished(t *testing.T) {
+	db := storetest.DB(t)
+	seedBoundSession(t, db) // the seeded event stays in setup
+
+	events, err := NewRepo(db).ActiveEvents(context.Background())
+
+	require.NoError(t, err)
+	require.Empty(t, events)
+}
+
+// A finished run has already crossed the line; a start signal is only for the
+// cars still on the grid or on the course.
+func TestRepo_LiveSessionIDsOf_OnlyBoundAndActive(t *testing.T) {
+	db := storetest.DB(t)
+	repo, session := seedBoundSession(t, db)
+	ctx := context.Background()
+
+	finished := Session{ID: store.NewID(), EventID: session.EventID, Status: StatusFinished}
+	vehicleID := store.NewID()
+	_, err := db.Exec(
+		"INSERT INTO vehicle (id, event_id, code, team_name) VALUES (?, ?, 'PKT-002', 'Frames')",
+		vehicleID, session.EventID)
+	require.NoError(t, err)
+	finished.VehicleID = vehicleID
+	boundAt := time.Now().UTC()
+	finished.BoundAt = &boundAt
+	finished.Status = StatusBound
+	require.NoError(t, repo.CreateSession(ctx, finished))
+	finished.Status = StatusFinished
+	require.NoError(t, repo.UpdateSession(ctx, finished))
+
+	ids, err := repo.LiveSessionIDsOf(ctx, session.EventID)
+
+	require.NoError(t, err)
+	require.Equal(t, []string{session.ID}, ids)
+}
