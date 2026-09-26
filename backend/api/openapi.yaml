@@ -950,6 +950,22 @@ paths:
                 lat: { type: number, format: double }
                 lng: { type: number, format: double }
                 accuracy: { type: number, format: double }
+                ts:
+                  type: string
+                  format: date-time
+                  description: |
+                    When the fix was taken. Omit it on a live fix — absent
+                    means "now", judged by the server's clock. Set it on a
+                    buffered flush, so fixes taken over minutes and sent in
+                    one burst are judged by when the car was there rather than
+                    as a string of teleports.
+
+                    Refused (400) when more than 30 seconds ahead of the
+                    server or more than 3 hours old. A few seconds fast is
+                    clamped to now. A fix older than the session's last known
+                    position — another phone kept the car covered — is
+                    accepted and ignored, and answers with nothing unlocked.
+                  example: "2027-02-13T09:28:00.250Z"
       responses:
         "200":
           description: What is now available.

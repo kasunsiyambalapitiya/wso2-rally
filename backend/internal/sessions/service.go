@@ -129,6 +129,9 @@ type Service struct {
 	minter    TokenMinter
 	alerts    AlertRaiser
 	broadcast Broadcaster
+	// now is the service's clock. It is a field so tests can place fix
+	// timestamps precisely around it; production always uses time.Now.
+	now func() time.Time
 }
 
 // NewService wires a Service. A nil broadcaster becomes a no-op so the service
@@ -138,7 +141,10 @@ func NewService(repo Repo, minter TokenMinter, alertRaiser AlertRaiser, broadcas
 		broadcast = func(string, any) {}
 	}
 
-	return &Service{repo: repo, minter: minter, alerts: alertRaiser, broadcast: broadcast}
+	return &Service{
+		repo: repo, minter: minter, alerts: alertRaiser, broadcast: broadcast,
+		now: func() time.Time { return time.Now().UTC() },
+	}
 }
 
 // Join puts one crew member's phone into their vehicle's run and returns the
@@ -329,12 +335,48 @@ func (s *Service) State(ctx context.Context, sessionID, deviceID string) (Sessio
 	return state, nil
 }
 
-// Ping records a reported position and answers with what the crew may now do.
+// maxFixAge is the oldest a client-stamped fix may be and still be judged.
+//
+// It is sized to the super app's buffer, not to a live stream: the route screen
+// deep-links into Google Maps, so a two-hour background gap is designed for,
+// and the host caps its buffer at 2,000 fixes — under three hours at one fix
+// every five seconds. Anything older than that was not produced by the flush
+// this exists for.
+const maxFixAge = 3 * time.Hour
+
+// maxFixClockSkew is how far ahead of the server a phone's clock may run before
+// its timestamp is refused rather than clamped. A few seconds fast is ordinary;
+// a minute fast is a clock that cannot be used to measure speed.
+const maxFixClockSkew = 30 * time.Second
+
+// Ping records a live position — one taken now — and answers with what the
+// crew may now do.
+func (s *Service) Ping(ctx context.Context, sessionID, deviceID string, position LatLng) (PingResult, error) {
+	return s.PingAt(ctx, sessionID, deviceID, position, time.Time{})
+}
+
+// PingAt records a position taken at takenAt, and answers with what the crew may
+// now do. A zero takenAt means the fix was taken now, which is the live path.
 //
 // The client never decides whether it is inside a boundary: it reports where
 // it is, and this method runs the geofence maths server-side.
-func (s *Service) Ping(ctx context.Context, sessionID, deviceID string, position LatLng) (PingResult, error) {
+//
+// The timestamp exists for the super app's buffered flush. A burst of fixes
+// taken over minutes arrives within milliseconds, and judging them by arrival
+// time makes an ordinary drive look like a string of teleports. Trusting a
+// client clock here is consistent with the MVP's existing decision to trust
+// client GPS: a phone that can lie about its time could already lie about its
+// position.
+func (s *Service) PingAt(
+	ctx context.Context, sessionID, deviceID string, position LatLng, takenAt time.Time,
+) (PingResult, error) {
 	if err := validatePosition(position); err != nil {
+		return PingResult{}, err
+	}
+
+	received := s.now()
+	now, err := fixInstant(takenAt, received)
+	if err != nil {
 		return PingResult{}, err
 	}
 
@@ -355,7 +397,18 @@ func (s *Service) Ping(ctx context.Context, sessionID, deviceID string, position
 		return PingResult{}, err
 	}
 
-	now := time.Now().UTC()
+	// Another phone kept the car covered while this one was backgrounded, so its
+	// replay is older than what the session already knows. Judging it would
+	// mean measuring speed backwards in time, and storing it would drag
+	// last_ping_at into the past — the next live fix would then be measured
+	// from a stale point. The phone was still heard from, so it counts as
+	// sharing.
+	if session.LastPingAt != nil && now.Before(*session.LastPingAt) {
+		s.logger().Info("ignored a fix older than the session's last known position",
+			"session_id", session.ID, "taken_at", now, "last_ping_at", *session.LastPingAt)
+		s.touchDevice(ctx, deviceID, sessionID, received)
+		return PingResult{}, nil
+	}
 
 	// Any phone in the car may report, which is what keeps the car covered when
 	// the driver is in Google Maps — but it also means a phone that is not in the
@@ -392,15 +445,7 @@ func (s *Service) Ping(ctx context.Context, sessionID, deviceID string, position
 		return PingResult{}, fmt.Errorf("update session %s: %w", sessionID, err)
 	}
 
-	// Recording that this phone was heard from is what makes it count as sharing
-	// location. Not fatal: the position is already stored, and losing the
-	// timestamp costs a "who is sharing" indicator, not the crew's progress.
-	if deviceID != "" {
-		if err := s.repo.TouchDevice(ctx, deviceID, now); err != nil {
-			s.logger().Warn("could not record that a phone reported",
-				"device_id", deviceID, "session_id", sessionID, "error", err)
-		}
-	}
+	s.touchDevice(ctx, deviceID, sessionID, received)
 
 	s.publishPosition(ctx, session, position)
 	s.broadcastSessionEvents(session.ID, result)
@@ -711,6 +756,46 @@ func nextWaypointID(waypoints []WaypointGeo, currentID *string) string {
 	}
 
 	return ""
+}
+
+// fixInstant decides which moment a fix is judged at: when it was taken if the
+// client said so and the claim is usable, otherwise when it was received.
+//
+// A guard that cannot judge must deny: a timestamp too far in the future or
+// older than any buffer holds is refused, not quietly replaced with "now",
+// because replacing it would re-create the teleport the timestamp was sent to
+// prevent. A clock only slightly fast is clamped instead — storing its future
+// instant would make the next live fix look older than the last one.
+func fixInstant(takenAt, received time.Time) (time.Time, error) {
+	if takenAt.IsZero() {
+		return received, nil
+	}
+
+	takenAt = takenAt.UTC()
+	switch {
+	case takenAt.After(received.Add(maxFixClockSkew)):
+		return time.Time{}, apperr.Validationf("ts is in the future; check the phone's clock")
+	case takenAt.After(received):
+		return received, nil
+	case received.Sub(takenAt) > maxFixAge:
+		return time.Time{}, apperr.Validationf("ts is older than %s and can no longer be judged", maxFixAge)
+	}
+
+	return takenAt, nil
+}
+
+// touchDevice records that a phone was heard from, which is what makes it count
+// as sharing location. Not fatal: losing the timestamp costs a "who is sharing"
+// indicator, not the crew's progress. It is stamped with the moment of receipt,
+// not the fix's own time — a phone flushing its buffer is back online now.
+func (s *Service) touchDevice(ctx context.Context, deviceID, sessionID string, at time.Time) {
+	if deviceID == "" {
+		return
+	}
+	if err := s.repo.TouchDevice(ctx, deviceID, at); err != nil {
+		s.logger().Warn("could not record that a phone reported",
+			"device_id", deviceID, "session_id", sessionID, "error", err)
+	}
 }
 
 func validatePosition(p LatLng) error {

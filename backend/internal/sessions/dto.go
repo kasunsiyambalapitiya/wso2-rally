@@ -16,7 +16,11 @@
 
 package sessions
 
-import "time"
+import (
+	"time"
+
+	"github.com/wso2-open-operations/wso2-motor-rally/backend/internal/apperr"
+)
 
 // SessionDTO is a session on the wire.
 type SessionDTO struct {
@@ -109,6 +113,28 @@ type LocationRequest struct {
 	Lat      float64 `json:"lat"`
 	Lng      float64 `json:"lng"`
 	Accuracy float64 `json:"accuracy"`
+	// Ts is when the fix was taken, ISO 8601. Optional: absent means "now",
+	// which is every live fix. The super app sets it on a buffered flush, so a
+	// burst of fixes taken over minutes is not judged as if it happened at once.
+	Ts *string `json:"ts"`
+}
+
+// TakenAt returns when the fix was taken, or the zero time when the client did
+// not say — which the service reads as "now".
+//
+// A ts that is present but unreadable is an error, never "now": falling back
+// would silently re-create the teleport the client sent it to avoid.
+func (r LocationRequest) TakenAt() (time.Time, error) {
+	if r.Ts == nil {
+		return time.Time{}, nil
+	}
+
+	takenAt, err := time.Parse(time.RFC3339Nano, *r.Ts)
+	if err != nil {
+		return time.Time{}, apperr.Validationf("ts must be an ISO 8601 timestamp, such as 2027-02-13T09:28:00Z")
+	}
+
+	return takenAt.UTC(), nil
 }
 
 // PingEventDTO is one thing the backend noticed about a reported position.
