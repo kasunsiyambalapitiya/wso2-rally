@@ -18,6 +18,12 @@ intent where a publisher will see it.
 `clientId`, the three `<host>` URLs and the `versions[].downloadUrl` are
 placeholders. Fill them when the app is first published:
 
+Before packaging, copy `public/config.js.example` to `public/config.js` and fill
+in the environment's values. It is gitignored, but it ships *inside* the zip —
+the super app serves the archive as-is, so there is nowhere else for runtime
+config to come from — and `npm run package` fails from a clean checkout without
+it.
+
 1. `npm run package` → `rally-microapp.zip`, contents at the **root** of the
    archive, not nested inside `dist/`.
 2. Host the zip, the icon and the banner.

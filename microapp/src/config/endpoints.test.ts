@@ -44,6 +44,17 @@ describe("endpoints", () => {
     await expect(loadEndpoints()).rejects.toThrow(/BACKEND_BASE_URL/);
   });
 
+  // The socket URL is derived by swapping the scheme, so anything that is not
+  // http(s) would yield a WS_URL that is not ws(s). Refuse it at startup, the
+  // same way a missing URL is refused, rather than fail on the first connect.
+  it("throws when BACKEND_BASE_URL is not an http(s) URL", async () => {
+    for (const value of ["ftp://rally.example.com", "rally.example.com", "file:///backend", "not a url"]) {
+      (window as unknown as { config: unknown }).config = { BACKEND_BASE_URL: value };
+
+      await expect(loadEndpoints(), value).rejects.toThrow(/BACKEND_BASE_URL/);
+    }
+  });
+
   it("exposes the backend URL without a trailing slash", async () => {
     (window as unknown as { config: unknown }).config = {
       BACKEND_BASE_URL: "https://rally.example.com/api/",

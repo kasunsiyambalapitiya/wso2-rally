@@ -14,7 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import "@testing-library/jest-dom";
+import "@testing-library/jest-dom/vitest";
 
 // Leaflet measures the DOM, which jsdom does not lay out. Map-bearing screens
 // are tested for their controls; the map itself renders as a stub.

@@ -50,11 +50,14 @@ if (!existsSync(DIST)) {
 
 const html = readFileSync(join(DIST, "index.html"), "utf8");
 
-// 1. Every src/href the document pulls in must be relative.
+// 1. Every src/href the document pulls in must be a file inside the zip. That
+//    rules out "/x" (the filesystem root under file://), "//host/x", and any
+//    scheme — an http(s) asset is not in the archive, and on a phone with no
+//    signal at the start line it simply does not load.
 const references = [...html.matchAll(/(?:src|href)="([^"]+)"/g)].map((match) => match[1]);
-const absolute = references.filter((reference) => reference.startsWith("/"));
-if (absolute.length > 0) {
-  bad(`absolute reference(s) in index.html: ${absolute.join(", ")} — set base: "./" in vite.config.ts`);
+const nonLocal = references.filter((reference) => reference.startsWith("/") || /^[a-z][a-z0-9+.-]*:/i.test(reference));
+if (nonLocal.length > 0) {
+  bad(`non-relative reference(s) in index.html: ${nonLocal.join(", ")} — set base: "./" in vite.config.ts`);
 } else {
   ok(`all ${references.length} references in index.html are relative`);
 }
@@ -82,8 +85,10 @@ if (readdirSync(DIST).includes("index.html")) {
 // 4. Hash routing, because there is no server to rewrite unknown paths.
 //    Detected by the DOM event hash history listens to: function names are
 //    minified away, but the event name is a string literal and survives.
-const bundle = readdirSync(join(DIST, "assets")).find((name) => name.endsWith(".js"));
-if (bundle && readFileSync(join(DIST, "assets", bundle), "utf8").includes("hashchange")) {
+//    Every emitted chunk is searched: once the build splits, the router need not
+//    live in whichever file happens to be listed first.
+const chunks = readdirSync(join(DIST, "assets")).filter((name) => name.endsWith(".js"));
+if (chunks.some((name) => readFileSync(join(DIST, "assets", name), "utf8").includes("hashchange"))) {
   ok("the bundle listens for hashchange, so routing is hash-based");
 } else {
   bad("no hashchange listener in the bundle — BrowserRouter cannot work from file://");

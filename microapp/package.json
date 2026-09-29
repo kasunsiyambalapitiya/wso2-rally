@@ -12,7 +12,7 @@
     "test": "vitest",
     "lint": "eslint .",
     "format": "prettier --write \"src/**/*.{ts,tsx}\"",
-    "package": "npm run build && npm run verify:file-protocol && cd dist && zip -qr ../rally-microapp.zip . -x config.js.example && cd .. && echo wrote rally-microapp.zip",
+    "package": "npm run build && npm run verify:file-protocol && rm -f rally-microapp.zip && cd dist && zip -qr ../rally-microapp.zip . -x config.js.example && cd .. && echo wrote rally-microapp.zip",
     "verify:file-protocol": "node scripts/verify-file-protocol.mjs"
   },
   "dependencies": {

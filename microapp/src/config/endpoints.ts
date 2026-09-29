@@ -50,6 +50,23 @@ if (!base) {
   throw new Error("Config Error: BACKEND_BASE_URL is not defined");
 }
 
+/**
+ * Whether a value is an absolute http(s) URL. WS_URL is derived by swapping the
+ * scheme, so any other scheme — or a bare host with none — would produce a
+ * socket URL that is not ws(s) and fail only on the first connect.
+ */
+const isHttpUrl = (value: string): boolean => {
+  try {
+    const { protocol } = new URL(value);
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+if (!isHttpUrl(base)) {
+  throw new Error(`Config Error: BACKEND_BASE_URL must be an http(s) URL, got "${base}"`);
+}
+
 /** Backend REST root, never with a trailing slash. */
 export const BACKEND_URL = base.replace(/\/+$/, "");
 
