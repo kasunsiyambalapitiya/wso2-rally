@@ -124,3 +124,34 @@ func TestRepo_JoinableVehiclesOf_OnlyTheCallersCarsInPublishedEvents(t *testing.
 		EventID: live, EventName: "Rally 2027", EventDate: "2027-02-13", StartTime: "09:00",
 	}}, got)
 }
+
+// Join matches the caller in Go, byte for byte once both sides are normalised.
+// The column's default collation also folds accents, so a plain = here would
+// offer jose@ a car that only josé@ can join — and join would then refuse them.
+func TestRepo_JoinableVehiclesOf_DoesNotFoldAccents(t *testing.T) {
+	db := storetest.DB(t)
+	ctx := context.Background()
+
+	eventID, vehicleID := store.NewID(), store.NewID()
+	_, err := db.Exec(
+		"INSERT INTO event (id, name, event_date, start_time, status, created_by) "+
+			"VALUES (?, 'Rally 2027', '2027-02-13', '09:00', 'active', 'organizer@wso2.com')", eventID)
+	require.NoError(t, err)
+	_, err = db.Exec("INSERT INTO vehicle (id, event_id, code, team_name) VALUES (?, ?, 'PKT-001', 'Packets')",
+		vehicleID, eventID)
+	require.NoError(t, err)
+	_, err = db.Exec(
+		"INSERT INTO crew_member (id, vehicle_id, name, email, phone_number) "+
+			"VALUES (?, ?, 'José', 'josé@example.com', '0770000000')", store.NewID(), vehicleID)
+	require.NoError(t, err)
+	repo := NewRepo(db)
+
+	got, err := repo.JoinableVehiclesOf(ctx, "jose@example.com")
+	require.NoError(t, err)
+	require.Empty(t, got, "jose@ is not josé@")
+
+	got, err = repo.JoinableVehiclesOf(ctx, "josé@example.com")
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, vehicleID, got[0].VehicleID)
+}
