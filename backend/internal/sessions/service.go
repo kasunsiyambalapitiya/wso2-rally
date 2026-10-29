@@ -104,7 +104,11 @@ type AlertRaiser interface {
 
 // Broadcaster publishes to a topic. Two topics matter here: the event topic
 // organizers watch, and the per-session topic the in-car phone subscribes to.
-type Broadcaster func(topic string, message any)
+//
+// It reports whether every subscriber got the message. Most callers ignore
+// that, because the next update supersedes a dropped one; the start signal
+// cannot, because nothing follows it.
+type Broadcaster func(topic string, message any) bool
 
 // EventTopic is the channel organizers subscribe to for one event.
 func EventTopic(eventID string) string { return "event:" + eventID }
@@ -145,9 +149,11 @@ type Service struct {
 	// zone is the rally's wall clock: an event's "09:00" is read in it.
 	zone *time.Location
 
-	// startedMu guards started, the events whose start signal has gone out.
+	// startedMu guards started, the events whose start signal has reached
+	// every car, and released, the cars it has reached so far.
 	startedMu sync.Mutex
 	started   map[string]struct{}
+	released  map[string]struct{}
 
 	// darkMu guards dark, the cars currently announced as having no phone
 	// sharing location, keyed by session.
@@ -165,15 +171,16 @@ func NewService(
 	repo Repo, minter TokenMinter, alertRaiser AlertRaiser, broadcast Broadcaster, zone *time.Location,
 ) *Service {
 	if broadcast == nil {
-		broadcast = func(string, any) {}
+		broadcast = func(string, any) bool { return true }
 	}
 
 	return &Service{
 		repo: repo, minter: minter, alerts: alertRaiser, broadcast: broadcast,
-		now:     func() time.Time { return time.Now().UTC() },
-		zone:    zone,
-		started: map[string]struct{}{},
-		dark:    map[string]SessionCoverage{},
+		now:      func() time.Time { return time.Now().UTC() },
+		zone:     zone,
+		started:  map[string]struct{}{},
+		released: map[string]struct{}{},
+		dark:     map[string]SessionCoverage{},
 	}
 }
 
@@ -756,6 +763,11 @@ const startSignalWindow = 5 * time.Minute
 // both messages as idempotent — which they are, since each only moves a phone
 // to a screen it may already be on.
 //
+// A car whose frame the hub dropped from a full buffer is sent both again on
+// the next tick, inside the same window. The cars that got them are not: a
+// resend to the whole grid every second would replay the start on every
+// phone that already has it.
+//
 // An event whose start cannot be read, or whose sessions cannot be listed, is
 // reported and left unfired so the next tick retries it. Neither stops the
 // other events from starting.
@@ -783,24 +795,59 @@ func (s *Service) FireDueStartSignals(ctx context.Context) error {
 			continue
 		}
 
+		missed := 0
 		for _, sessionID := range sessionIDs {
-			topic := SessionTopic(sessionID)
-			s.broadcast(topic, map[string]any{
-				"type":     "start_signal",
-				"startsAt": startsAt.Format(time.RFC3339),
-			})
-			// An empty reveal would blank the phone's cipher screen, so an
-			// event with none configured starts without one.
-			if event.Cipher != "" {
-				s.broadcast(topic, map[string]any{"type": "cipher_reveal", "cipher": event.Cipher})
+			if s.wasReleased(sessionID) {
+				continue
 			}
+			if !s.release(sessionID, startsAt, event.Cipher) {
+				missed++
+				continue
+			}
+			s.markReleased(sessionID)
 		}
 
+		if missed > 0 {
+			s.logger().Warn("start signal dropped for some cars, resending next tick",
+				"event_id", event.ID, "sessions", missed)
+			continue
+		}
 		s.markStarted(event.ID)
 		s.logger().Info("start signal sent", "event_id", event.ID, "sessions", len(sessionIDs))
 	}
 
 	return errors.Join(errs...)
+}
+
+// release sends one car its start and its cipher, and reports whether every
+// phone subscribed to the car got both.
+func (s *Service) release(sessionID string, startsAt time.Time, cipher string) bool {
+	topic := SessionTopic(sessionID)
+	delivered := s.broadcast(topic, map[string]any{
+		"type":     "start_signal",
+		"startsAt": startsAt.Format(time.RFC3339),
+	})
+	// An empty reveal would blank the phone's cipher screen, so an event with
+	// none configured starts without one. A dropped start does not skip the
+	// reveal: the phone may still have room for it.
+	if cipher != "" {
+		delivered = s.broadcast(topic, map[string]any{"type": "cipher_reveal", "cipher": cipher}) && delivered
+	}
+
+	return delivered
+}
+
+func (s *Service) wasReleased(sessionID string) bool {
+	s.startedMu.Lock()
+	defer s.startedMu.Unlock()
+	_, ok := s.released[sessionID]
+	return ok
+}
+
+func (s *Service) markReleased(sessionID string) {
+	s.startedMu.Lock()
+	defer s.startedMu.Unlock()
+	s.released[sessionID] = struct{}{}
 }
 
 func (s *Service) hasStarted(eventID string) bool {

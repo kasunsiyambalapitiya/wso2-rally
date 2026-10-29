@@ -367,10 +367,21 @@ type broadcastRecord struct {
 func newService(t *testing.T) (*Service, *fakeRepo, *recordingAlerts, *[]broadcastRecord) {
 	t.Helper()
 
+	return newServiceDelivering(t, func(string, any) bool { return true })
+}
+
+// newServiceDelivering lets a test decide whether each broadcast reached every
+// subscriber, as a hub shedding frames from a full buffer would not.
+func newServiceDelivering(
+	t *testing.T, delivered func(topic string, message any) bool,
+) (*Service, *fakeRepo, *recordingAlerts, *[]broadcastRecord) {
+	t.Helper()
+
 	repo, alertRaiser := newFakeRepo(), &recordingAlerts{}
 	var sent []broadcastRecord
-	svc := NewService(repo, stubMinter{}, alertRaiser, func(topic string, message any) {
+	svc := NewService(repo, stubMinter{}, alertRaiser, func(topic string, message any) bool {
 		sent = append(sent, broadcastRecord{topic: topic, message: message})
+		return delivered(topic, message)
 	}, colombo)
 
 	return svc, repo, alertRaiser, &sent

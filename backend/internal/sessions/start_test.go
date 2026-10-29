@@ -183,6 +183,55 @@ func TestService_FireDueStartSignals_RetriesAfterAFailure(t *testing.T) {
 	require.Len(t, messagesOfType(*sent, "start_signal"), 2)
 }
 
+// The hub sheds a frame when a subscriber's buffer is full, and the start is
+// the one frame nothing later supersedes. The car that missed it gets it again
+// on the next tick; the cars that already have it are left alone.
+func TestService_FireDueStartSignals_ResendsOnlyToACarThatMissedIt(t *testing.T) {
+	full := true
+	svc, repo, _, sent := newServiceDelivering(t, func(topic string, _ any) bool {
+		return !full || topic != SessionTopic("session-b")
+	})
+	startingRally(repo)
+	frozenClock(svc, nineAM)
+	require.NoError(t, svc.FireDueStartSignals(context.Background()))
+
+	full, *sent = false, nil
+	frozenClock(svc, nineAM.Add(time.Second))
+	require.NoError(t, svc.FireDueStartSignals(context.Background()))
+
+	starts := messagesOfType(*sent, "start_signal")
+	require.Len(t, starts, 1)
+	require.Equal(t, SessionTopic("session-b"), starts[0].topic)
+	require.Len(t, messagesOfType(*sent, "cipher_reveal"), 1)
+
+	*sent = nil
+	frozenClock(svc, nineAM.Add(2*time.Second))
+	require.NoError(t, svc.FireDueStartSignals(context.Background()))
+	require.Empty(t, *sent, "every car has it now")
+}
+
+// The cipher is withheld until the start, so a dropped reveal leaves the crew
+// with nothing to solve. It counts as a miss just as a dropped start does.
+func TestService_FireDueStartSignals_ADroppedCipherIsAMiss(t *testing.T) {
+	full := true
+	svc, repo, _, sent := newServiceDelivering(t, func(topic string, message any) bool {
+		dropped := full && topic == SessionTopic("session-a") &&
+			message.(map[string]any)["type"] == "cipher_reveal"
+		return !dropped
+	})
+	startingRally(repo)
+	frozenClock(svc, nineAM)
+	require.NoError(t, svc.FireDueStartSignals(context.Background()))
+
+	full, *sent = false, nil
+	frozenClock(svc, nineAM.Add(time.Second))
+	require.NoError(t, svc.FireDueStartSignals(context.Background()))
+
+	ciphers := messagesOfType(*sent, "cipher_reveal")
+	require.Len(t, ciphers, 1)
+	require.Equal(t, SessionTopic("session-a"), ciphers[0].topic)
+}
+
 // An event with no cipher configured still starts; there is just nothing to
 // reveal, and an empty reveal would blank the B3 screen.
 func TestService_FireDueStartSignals_NoCipherStillStarts(t *testing.T) {
