@@ -45,11 +45,23 @@ type SessionCoverage struct {
 // CoverageLost reports whether a car has gone dark: no phone has reported for
 // longer than CoverageAlarmAfter.
 //
-// A car with no report at all is dark too. A guard that cannot judge must deny,
-// and here denying means raising the warning rather than assuming the car is
-// covered.
-func CoverageLost(lastReportAt *time.Time, now time.Time) bool {
-	return lastReportAt == nil || now.Sub(*lastReportAt) > CoverageAlarmAfter
+// The silence is counted from the event's start at the earliest. A session
+// turns active on its first ping, which can come from the grid long before the
+// start, and a crew waiting there may well lock its phones — that is not an
+// outage. A car still silent CoverageAlarmAfter past the start is dark like
+// any other.
+//
+// A car with no report at all is dark too, once the start is that far behind.
+// So is one judged without a start — the zero time, when its start cannot be
+// read. A guard that cannot judge must deny, and here denying means raising the
+// warning rather than assuming the car is covered.
+func CoverageLost(lastReportAt *time.Time, startsAt, now time.Time) bool {
+	since := startsAt
+	if lastReportAt != nil && lastReportAt.After(startsAt) {
+		since = *lastReportAt
+	}
+
+	return now.Sub(since) > CoverageAlarmAfter
 }
 
 // CheckCoverage warns every car on the course that has gone dark, and clears
@@ -71,6 +83,10 @@ func (s *Service) CheckCoverage(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list coverage of active sessions: %w", err)
 	}
+	starts, err := s.startsOfActiveEvents(ctx)
+	if err != nil {
+		return err
+	}
 
 	now := s.now()
 	s.darkMu.Lock()
@@ -80,7 +96,7 @@ func (s *Service) CheckCoverage(ctx context.Context) error {
 	for _, car := range cars {
 		onCourse[car.SessionID] = true
 		_, announced := s.dark[car.SessionID]
-		lost := CoverageLost(car.LastReportAt, now)
+		lost := CoverageLost(car.LastReportAt, starts[car.EventID], now)
 
 		switch {
 		case lost && !announced:
@@ -115,6 +131,27 @@ func (s *Service) CheckCoverage(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// startsOfActiveEvents maps each active event to its start instant.
+//
+// An event whose start cannot be read is left out, so its cars are judged with
+// the zero start — by their last report alone. FireDueStartSignals reports
+// that event on every tick, so it is not logged again here.
+func (s *Service) startsOfActiveEvents(ctx context.Context) (map[string]time.Time, error) {
+	events, err := s.repo.ActiveEvents(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list active events: %w", err)
+	}
+
+	starts := make(map[string]time.Time, len(events))
+	for _, event := range events {
+		if startsAt, err := StartInstant(event.Date, event.StartTime, s.zone); err == nil {
+			starts[event.ID] = startsAt
+		}
+	}
+
+	return starts, nil
 }
 
 // reportedAt renders a last-report time for the wire, or nil when there was none.

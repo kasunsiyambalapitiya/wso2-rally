@@ -33,20 +33,70 @@ func ago(d time.Duration) *time.Time {
 }
 
 func TestCoverageLost(t *testing.T) {
+	started := coverageNow.Add(-time.Hour)
 	tests := map[string]struct {
 		lastReport *time.Time
+		startsAt   time.Time
 		want       bool
 	}{
-		"reported just now":            {ago(0), false},
-		"reported at the threshold":    {ago(CoverageAlarmAfter), false},
-		"silent past the threshold":    {ago(CoverageAlarmAfter + time.Second), true},
-		"never reported — cannot tell": {nil, true},
+		"reported just now":            {ago(0), started, false},
+		"reported at the threshold":    {ago(CoverageAlarmAfter), started, false},
+		"silent past the threshold":    {ago(CoverageAlarmAfter + time.Second), started, true},
+		"never reported — cannot tell": {nil, started, true},
+		// A crew waiting on the grid may lock its phones. Nobody is expected to
+		// report before the start, so the silence is counted from it.
+		"silent on the grid before the start": {ago(time.Hour), coverageNow.Add(time.Minute), false},
+		"silent since the grid, start just passed": {
+			ago(time.Hour), coverageNow.Add(-CoverageAlarmAfter), false,
+		},
+		"silent since the grid, past the threshold": {
+			ago(time.Hour), coverageNow.Add(-CoverageAlarmAfter - time.Second), true,
+		},
+		"never reported, start just passed": {nil, coverageNow.Add(-time.Second), false},
+		// A start that cannot be read is the zero instant: the car is judged by
+		// its last report alone, and warned about rather than assumed covered.
+		"start unknown, silent past the threshold": {ago(CoverageAlarmAfter + time.Second), time.Time{}, true},
+		"start unknown, never reported":            {nil, time.Time{}, true},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			require.Equal(t, tt.want, CoverageLost(tt.lastReport, coverageNow))
+			require.Equal(t, tt.want, CoverageLost(tt.lastReport, tt.startsAt, coverageNow))
 		})
 	}
+}
+
+// A session turns active on its first ping, which can come from the grid long
+// before 09:00. A crew that then locks its phones has not gone dark — until the
+// rally starts without them reporting.
+func TestService_CheckCoverage_QuietOnTheGridBeforeTheStart(t *testing.T) {
+	svc, repo, _, sent := newService(t)
+	startingRally(repo)
+	onTheGrid := nineAM.Add(-30 * time.Minute)
+	repo.coverage = []SessionCoverage{{
+		SessionID: "session-a", EventID: testEventID, VehicleCode: "PKT-001", LastReportAt: &onTheGrid,
+	}}
+
+	frozenClock(svc, nineAM.Add(-time.Minute))
+	require.NoError(t, svc.CheckCoverage(context.Background()))
+	require.Empty(t, *sent, "before the start")
+
+	frozenClock(svc, nineAM.Add(CoverageAlarmAfter))
+	require.NoError(t, svc.CheckCoverage(context.Background()))
+	require.Empty(t, *sent, "the crew gets the same 30 s from the start as anyone between reports")
+
+	frozenClock(svc, nineAM.Add(CoverageAlarmAfter+time.Second))
+	require.NoError(t, svc.CheckCoverage(context.Background()))
+	require.Len(t, messagesOfType(*sent, "coverage_lost"), 2)
+}
+
+func TestService_CheckCoverage_ReportsAnEventLookupFailure(t *testing.T) {
+	svc, repo, _, sent := newService(t)
+	onCourse(repo, 45*time.Second)
+	repo.activeEventsErr = errors.New("db down")
+	frozenClock(svc, coverageNow)
+
+	require.Error(t, svc.CheckCoverage(context.Background()))
+	require.Empty(t, *sent)
 }
 
 // onCourse is one car out on the route, last heard from `silent` ago.
@@ -160,6 +210,28 @@ func TestService_State_ReportsCoverageByTheAlarmRule(t *testing.T) {
 	covered, err := svc.State(ctx, joined.Session.ID, joined.Device.ID)
 	require.NoError(t, err)
 	require.False(t, covered.CoverageLost)
+}
+
+// The state a phone loads agrees with the frames on the grid too: a crew that
+// pinged before 09:00 and locked its phones is not dark until the rally starts.
+func TestService_State_CountsSilenceFromTheStart(t *testing.T) {
+	svc, repo, _, _ := newService(t)
+	joined := joinAs(t, svc, crewAEmail)
+	ctx := context.Background()
+	stored := repo.sessions[joined.Session.ID]
+	stored.Status = StatusActive
+	repo.sessions[joined.Session.ID] = stored
+	require.NoError(t, repo.TouchDevice(ctx, joined.Device.ID, nineAM.Add(-30*time.Minute)))
+
+	frozenClock(svc, nineAM.Add(-time.Minute))
+	early, err := svc.State(ctx, joined.Session.ID, joined.Device.ID)
+	require.NoError(t, err)
+	require.False(t, early.CoverageLost, "before the start")
+
+	frozenClock(svc, nineAM.Add(CoverageAlarmAfter+time.Second))
+	late, err := svc.State(ctx, joined.Session.ID, joined.Device.ID)
+	require.NoError(t, err)
+	require.True(t, late.CoverageLost)
 }
 
 // A crew still on the grid has not started reporting; that is not an outage.

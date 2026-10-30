@@ -194,18 +194,18 @@ func (e EventInfo) IsActive() bool { return e.Status == "active" }
 type StartingEvent struct {
 	ID string
 	// Date and StartTime are the event's wall-clock start, read in the rally
-	// zone. See startInstant.
+	// zone. See StartInstant.
 	Date      string
 	StartTime string
 	Cipher    string
 }
 
-// startInstant turns an event's wall-clock start into an instant.
+// StartInstant turns an event's wall-clock start into an instant.
 //
 // The organizer types "09:00" meaning 09:00 where the rally is run, so it is
 // read in the rally's zone, not the server's — a Choreo pod runs in UTC, and
 // reading it there would release every car five and a half hours late.
-func startInstant(date, startTime string, zone *time.Location) (time.Time, error) {
+func StartInstant(date, startTime string, zone *time.Location) (time.Time, error) {
 	instant, err := time.ParseInLocation("2006-01-02 15:04", date+" "+startTime, zone)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("read start %q %q: %w", date, startTime, err)

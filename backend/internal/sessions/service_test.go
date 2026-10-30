@@ -67,6 +67,7 @@ type fakeRepo struct {
 	visits map[string]map[string]bool
 	// activeEvents and liveSessionIDs feed the start-signal scheduler.
 	activeEvents    []StartingEvent
+	activeEventsErr error
 	liveSessionIDs  map[string][]string
 	liveSessionsErr error
 	// coverage feeds CheckCoverage.
@@ -82,6 +83,9 @@ func (f *fakeRepo) ActiveSessionCoverage(context.Context) ([]SessionCoverage, er
 }
 
 func (f *fakeRepo) ActiveEvents(context.Context) ([]StartingEvent, error) {
+	if f.activeEventsErr != nil {
+		return nil, f.activeEventsErr
+	}
 	return f.activeEvents, nil
 }
 

@@ -24,6 +24,7 @@ package scoring
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"slices"
 	"time"
 
@@ -86,6 +87,9 @@ type Repo interface {
 	ProgressOf(ctx context.Context, eventID string) ([]VehicleProgress, error)
 	// OpenAlertCountOf counts the event's unresolved vehicle alerts.
 	OpenAlertCountOf(ctx context.Context, eventID string) (int, error)
+	// EventStartOf returns the event's wall-clock start: the date as
+	// "2006-01-02" and the time as the organizer entered it.
+	EventStartOf(ctx context.Context, eventID string) (date, startTime string, err error)
 }
 
 // Service exposes the two read views.
@@ -93,11 +97,14 @@ type Service struct {
 	repo Repo
 	// now is the clock coverage is judged by; a field so tests can pin it.
 	now func() time.Time
+	// zone is the rally's wall clock, the one an event's "09:00" is read in.
+	zone *time.Location
 }
 
-// NewService wires a Service to its repository.
-func NewService(repo Repo) *Service {
-	return &Service{repo: repo, now: func() time.Time { return time.Now().UTC() }}
+// NewService wires a Service to its repository. zone is the rally's wall
+// clock, the same one the in-car runtime reads an event's start in.
+func NewService(repo Repo, zone *time.Location) *Service {
+	return &Service{repo: repo, now: func() time.Time { return time.Now().UTC() }, zone: zone}
 }
 
 // Leaderboard ranks an event's teams.
@@ -133,14 +140,47 @@ func (s *Service) MonitorSnapshot(ctx context.Context, eventID string) (MonitorS
 	// The same rule the live coverage_lost frames use, so a monitor opened on a
 	// car that is already dark flags it immediately rather than never — that
 	// car's frame went out before the page loaded. Only a car on the course is
-	// expected to be reporting.
+	// expected to be reporting, and only once the rally has started.
+	startsAt, err := s.coverageStartOf(ctx, eventID, vehicles)
+	if err != nil {
+		return MonitorSnapshot{}, err
+	}
 	now := s.now()
 	for i := range vehicles {
-		vehicles[i].CoverageLost = vehicles[i].SessionStatus == string(sessions.StatusActive) &&
-			sessions.CoverageLost(vehicles[i].LastReportAt, now)
+		vehicles[i].CoverageLost = onCourse(vehicles[i]) &&
+			sessions.CoverageLost(vehicles[i].LastReportAt, startsAt, now)
 	}
 
 	return MonitorSnapshot{Vehicles: vehicles, OpenAlerts: openAlerts}, nil
+}
+
+func onCourse(vehicle VehicleProgress) bool {
+	return vehicle.SessionStatus == string(sessions.StatusActive)
+}
+
+// coverageStartOf is the instant the event's coverage is counted from. With no
+// car on the course there is nothing to judge, so it is not looked up.
+//
+// A start that cannot be read leaves the zero instant, which judges each car by
+// its last report alone: a guard that cannot judge must deny, and here that
+// means flagging the car rather than assuming it is covered.
+func (s *Service) coverageStartOf(ctx context.Context, eventID string, vehicles []VehicleProgress) (time.Time, error) {
+	if !slices.ContainsFunc(vehicles, onCourse) {
+		return time.Time{}, nil
+	}
+
+	date, startTime, err := s.repo.EventStartOf(ctx, eventID)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("load start of event %s: %w", eventID, err)
+	}
+	startsAt, err := sessions.StartInstant(date, startTime, s.zone)
+	if err != nil {
+		slog.Error("could not read the event start; judging coverage without it",
+			"event_id", eventID, "error", err)
+		return time.Time{}, nil
+	}
+
+	return startsAt, nil
 }
 
 // Rank orders standings and assigns positions.

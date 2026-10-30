@@ -100,9 +100,10 @@ components:
       name: coverage_lost
       summary: |
         A car on the course has had no phone reporting its position for 30
-        seconds. The driver is usually in Google Maps and no passenger is
-        sharing, so geofences are not being evaluated — the monitor should
-        flag the car. Sent once per outage; `GET /events/{eventId}/monitor`
+        seconds, counted from the event's start at the earliest — silence on
+        the grid before the start is not an outage. The driver is usually in
+        Google Maps and no passenger is sharing, so geofences are not being
+        evaluated — the monitor should flag the car. Sent once per outage; `GET /events/{eventId}/monitor`
         carries the same state as `coverageLost` for a monitor opened later.
       payload:
         type: object
@@ -137,10 +138,10 @@ components:
     CoverageLost:
       name: coverage_lost
       summary: |
-        No phone in this car has reported its position for 30 seconds. Every
-        open phone should ask a passenger to keep the rally app open with
-        location on — a phone locked in a pocket stops reporting. Sent once
-        per outage.
+        No phone in this car has reported its position for 30 seconds,
+        counted from the event's start at the earliest. Every open phone
+        should ask a passenger to keep the rally app open with location on —
+        a phone locked in a pocket stops reporting. Sent once per outage.
       payload:
         type: object
         required: [type, lastReportAt]

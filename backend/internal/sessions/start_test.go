@@ -33,7 +33,7 @@ var colombo = time.FixedZone("Asia/Colombo", 5*60*60+30*60)
 var nineAM = time.Date(2027, 2, 13, 3, 30, 0, 0, time.UTC)
 
 func TestStartInstant_ReadsTheWallClockInTheRallyZone(t *testing.T) {
-	got, err := startInstant("2027-02-13", "09:00", colombo)
+	got, err := StartInstant("2027-02-13", "09:00", colombo)
 
 	require.NoError(t, err)
 	require.True(t, nineAM.Equal(got), "got %s", got)
@@ -50,7 +50,7 @@ func TestStartInstant_RejectsWhatItCannotRead(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			_, err := startInstant(tt[0], tt[1], colombo)
+			_, err := StartInstant(tt[0], tt[1], colombo)
 
 			require.Error(t, err)
 		})
@@ -154,6 +154,25 @@ func TestService_FireDueStartSignals_FiresOnce(t *testing.T) {
 	require.NoError(t, svc.FireDueStartSignals(context.Background()))
 
 	require.Len(t, *sent, first)
+}
+
+// An active event's date and time can still be edited, so a start that has
+// fired — a rehearsal, or a start the organizer then delayed — must not stand
+// in for the one it moved to.
+func TestService_FireDueStartSignals_FiresAgainForAMovedStart(t *testing.T) {
+	svc, repo, _, sent := newService(t)
+	startingRally(repo)
+	frozenClock(svc, nineAM)
+	require.NoError(t, svc.FireDueStartSignals(context.Background()))
+
+	repo.activeEvents[0].StartTime = "10:00"
+	tenAM := nineAM.Add(time.Hour)
+	frozenClock(svc, tenAM)
+	require.NoError(t, svc.FireDueStartSignals(context.Background()))
+
+	starts := messagesOfType(*sent, "start_signal")
+	require.Len(t, starts, 4, "every car is released again at the new start")
+	require.Equal(t, tenAM.Format(time.RFC3339), starts[3].message.(map[string]any)["startsAt"])
 }
 
 // A server that comes up at noon must not announce a 09:00 start. Phones that

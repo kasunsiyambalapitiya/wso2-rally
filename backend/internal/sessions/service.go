@@ -149,8 +149,9 @@ type Service struct {
 	// zone is the rally's wall clock: an event's "09:00" is read in it.
 	zone *time.Location
 
-	// startedMu guards started, the events whose start signal has reached
-	// every car, and released, the cars it has reached so far.
+	// startedMu guards started, the event starts whose signal has reached
+	// every car, and released, the cars each has reached so far. Both are keyed
+	// by startKey, so a moved start is a new one.
 	startedMu sync.Mutex
 	started   map[string]struct{}
 	released  map[string]struct{}
@@ -365,14 +366,11 @@ func (s *Service) State(ctx context.Context, sessionID, deviceID string) (Sessio
 			lastReportAt = device.LastSeenAt
 		}
 	}
-	// Only a car on the course is expected to be reporting; a crew still on the
-	// grid has not started, and that is not an outage.
-	state.CoverageLost = session.Status == StatusActive && CoverageLost(lastReportAt, s.now())
 	// The cipher is part of the 09:00 start. Publishing an event opens it to
 	// crews, which can be days earlier, so "active" alone must not reveal it.
 	// A start that cannot be read cannot be judged, and a guard that cannot
 	// judge denies: the cipher stays withheld rather than going out early.
-	startsAt, err := startInstant(event.Date, event.StartTime, s.zone)
+	startsAt, err := StartInstant(event.Date, event.StartTime, s.zone)
 	if err != nil {
 		s.logger().Error("could not read the event start; withholding the cipher",
 			"event_id", session.EventID, "error", err)
@@ -382,6 +380,10 @@ func (s *Service) State(ctx context.Context, sessionID, deviceID string) (Sessio
 			state.Cipher = event.Cipher
 		}
 	}
+	// Only a car on the course is expected to be reporting; a crew still on the
+	// grid has not started, and that is not an outage. The same rule as the
+	// coverage frames, counted from the same start — zero when it is unreadable.
+	state.CoverageLost = session.Status == StatusActive && CoverageLost(lastReportAt, state.StartsAt, s.now())
 	state.NextWaypointID = nextWaypointID(waypoints, session.CurrentWaypointID)
 
 	return state, nil
@@ -758,10 +760,12 @@ const startSignalWindow = 5 * time.Minute
 // FireDueStartSignals releases every bound car of every event whose start has
 // just arrived: a start_signal and the cipher, on each live session's topic.
 //
-// It is meant to be called every second. Each event fires once per process;
-// a restart inside startSignalWindow fires it again, so clients must treat
-// both messages as idempotent — which they are, since each only moves a phone
-// to a screen it may already be on.
+// It is meant to be called every second. Each start of each event fires once
+// per process; a restart inside startSignalWindow fires it again, so clients
+// must treat both messages as idempotent — which they are, since each only
+// moves a phone to a screen it may already be on. An active event's date and
+// time can still be edited, so a start that moved — after a rehearsal, or a
+// delay — fires again at its new instant.
 //
 // A car whose frame the hub dropped from a full buffer is sent both again on
 // the next tick, inside the same window. The cars that got them are not: a
@@ -780,12 +784,13 @@ func (s *Service) FireDueStartSignals(ctx context.Context) error {
 	now := s.now()
 	var errs []error
 	for _, event := range events {
-		startsAt, err := startInstant(event.Date, event.StartTime, s.zone)
+		startsAt, err := StartInstant(event.Date, event.StartTime, s.zone)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("event %s: %w", event.ID, err))
 			continue
 		}
-		if now.Before(startsAt) || now.Sub(startsAt) > startSignalWindow || s.hasStarted(event.ID) {
+		eventStart := startKey(event.ID, startsAt)
+		if now.Before(startsAt) || now.Sub(startsAt) > startSignalWindow || s.hasStarted(eventStart) {
 			continue
 		}
 
@@ -797,14 +802,15 @@ func (s *Service) FireDueStartSignals(ctx context.Context) error {
 
 		missed := 0
 		for _, sessionID := range sessionIDs {
-			if s.wasReleased(sessionID) {
+			carStart := startKey(sessionID, startsAt)
+			if s.wasReleased(carStart) {
 				continue
 			}
 			if !s.release(sessionID, startsAt, event.Cipher) {
 				missed++
 				continue
 			}
-			s.markReleased(sessionID)
+			s.markReleased(carStart)
 		}
 
 		if missed > 0 {
@@ -812,7 +818,7 @@ func (s *Service) FireDueStartSignals(ctx context.Context) error {
 				"event_id", event.ID, "sessions", missed)
 			continue
 		}
-		s.markStarted(event.ID)
+		s.markStarted(eventStart)
 		s.logger().Info("start signal sent", "event_id", event.ID, "sessions", len(sessionIDs))
 	}
 
@@ -837,30 +843,35 @@ func (s *Service) release(sessionID string, startsAt time.Time, cipher string) b
 	return delivered
 }
 
-func (s *Service) wasReleased(sessionID string) bool {
+// startKey names one start of an event or a car: the id at the start instant.
+func startKey(id string, startsAt time.Time) string {
+	return id + "@" + startsAt.Format(time.RFC3339)
+}
+
+func (s *Service) wasReleased(carStart string) bool {
 	s.startedMu.Lock()
 	defer s.startedMu.Unlock()
-	_, ok := s.released[sessionID]
+	_, ok := s.released[carStart]
 	return ok
 }
 
-func (s *Service) markReleased(sessionID string) {
+func (s *Service) markReleased(carStart string) {
 	s.startedMu.Lock()
 	defer s.startedMu.Unlock()
-	s.released[sessionID] = struct{}{}
+	s.released[carStart] = struct{}{}
 }
 
-func (s *Service) hasStarted(eventID string) bool {
+func (s *Service) hasStarted(eventStart string) bool {
 	s.startedMu.Lock()
 	defer s.startedMu.Unlock()
-	_, ok := s.started[eventID]
+	_, ok := s.started[eventStart]
 	return ok
 }
 
-func (s *Service) markStarted(eventID string) {
+func (s *Service) markStarted(eventStart string) {
 	s.startedMu.Lock()
 	defer s.startedMu.Unlock()
-	s.started[eventID] = struct{}{}
+	s.started[eventStart] = struct{}{}
 }
 
 // publishPosition pushes the vehicle's position to the organizer's monitor.

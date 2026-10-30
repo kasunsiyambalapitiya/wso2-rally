@@ -155,3 +155,19 @@ func (r *sqlRepo) OpenAlertCountOf(ctx context.Context, eventID string) (int, er
 
 	return count, nil
 }
+
+// EventStartOf reads the event's wall-clock start. The date is formatted in
+// SQL, as the in-car runtime reads it, so no driver time-zone conversion moves
+// the day.
+func (r *sqlRepo) EventStartOf(ctx context.Context, eventID string) (string, string, error) {
+	const query = `
+		SELECT DATE_FORMAT(event_date, '%Y-%m-%d'), start_time
+		FROM event WHERE id = ?`
+
+	var date, startTime string
+	if err := r.db.QueryRowContext(ctx, query, eventID).Scan(&date, &startTime); err != nil {
+		return "", "", fmt.Errorf("select start of event %s: %w", eventID, err)
+	}
+
+	return date, startTime, nil
+}

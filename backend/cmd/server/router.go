@@ -80,7 +80,7 @@ func newRouter(d deps) http.Handler {
 	// The hub is the fan-out behind every live view. Services publish to it
 	// through the broadcasters wired below.
 	hub := realtime.NewHub(d.logger, originHostOf(d.cfg.CORSAllowOrigin))
-	scoringService := scoring.NewService(scoring.NewRepo(d.db))
+	scoringService := scoring.NewService(scoring.NewRepo(d.db), d.cfg.EventZone)
 
 	// Alerts move a vehicle's status and push to the organizer's live monitor.
 	alertsService := alerts.NewService(alerts.NewRepo(d.db), vehiclesService, newAlertBroadcaster(hub))

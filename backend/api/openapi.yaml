@@ -1447,8 +1447,9 @@ components:
           type: boolean
           description: |
             A car on the course whose phones have all been silent for over 30
-            seconds. Live changes arrive as coverage_lost / coverage_restored
-            on the event topic.
+            seconds, counted from the event's start at the earliest. Live
+            changes arrive as coverage_lost / coverage_restored on the event
+            topic.
 
     DebriefVideo:
       type: object
@@ -1538,7 +1539,8 @@ components:
           type: boolean
           description: |
             True while the car is on the course and no phone has reported for
-            30 seconds — the rule behind the coverage_lost frame. Stricter than
+            30 seconds, counted from the event's start at the earliest — the
+            rule behind the coverage_lost frame. Stricter than
             sharingCount reaching zero; this is the value to drive the warning
             that asks a passenger to keep the rally app open.
 
