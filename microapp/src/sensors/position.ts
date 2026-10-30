@@ -130,17 +130,27 @@ export const bridgePositionSource: PositionSource = {
     watchers.add(watcher);
 
     if (!stopHostStream) {
-      stopHostStream = subscribeLocation(
+      // A host may refuse before requestLocationUpdates returns. Then the stop
+      // handed back belongs to a stream that is already gone, and keeping it
+      // would leave every later watcher waiting on nothing.
+      let refused = false;
+      const stop = subscribeLocation(
         STREAM_OPTIONS,
         (fix) => watchers.forEach((w) => w.onPosition(fromFix(fix))),
         (reason) => {
           // A refused stream is gone. Forget it, so the next watch asks again —
           // after the crew has, say, allowed location in settings.
+          refused = true;
           stopHostStream?.();
           stopHostStream = null;
           watchers.forEach((w) => w.onError?.(asFailure(reason)));
         },
       );
+      if (refused) {
+        stop();
+      } else {
+        stopHostStream = stop;
+      }
     }
 
     return () => {

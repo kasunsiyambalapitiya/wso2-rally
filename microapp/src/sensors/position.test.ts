@@ -179,6 +179,25 @@ describe("bridgePositionSource", () => {
     expect(onError).toHaveBeenCalledWith("not_declared");
     expect(bridge.requestLocationUpdates).toHaveBeenCalledTimes(2);
   });
+
+  // A host may refuse inside requestLocationUpdates, before it returns. The
+  // stream is gone all the same: a watcher arriving later must ask again, not
+  // wait on a stream that will never deliver.
+  it("treats a refusal made before the host returns as a closed stream", () => {
+    const { bridge, reject } = embedLocation();
+    bridge.requestLocationUpdates = vi.fn(() => reject("permission_denied"));
+    const first = vi.fn();
+    const second = vi.fn();
+
+    const stopFirst = bridgePositionSource.watch(vi.fn(), first);
+    const stopSecond = bridgePositionSource.watch(vi.fn(), second);
+
+    expect(first).toHaveBeenCalledWith("permission_denied");
+    expect(bridge.requestLocationUpdates).toHaveBeenCalledTimes(2);
+    expect(second).toHaveBeenCalledWith("permission_denied");
+    stopFirst();
+    stopSecond();
+  });
 });
 
 describe("positionSource", () => {

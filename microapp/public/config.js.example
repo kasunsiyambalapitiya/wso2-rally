@@ -24,7 +24,8 @@ window.config = {
   // IS_MICROAPP  (required in the super app; omit or false for browser dev)
   //   true  → take the Asgardeo token from the super app's native bridge.
   //   false → desktop-browser development: use DEV_SUPER_APP_TOKEN below.
-  //   Must be the boolean true, not the string "true".
+  //   Must be the boolean true, not the string "true". `npm run package` (via
+  //   verify:file-protocol) refuses a build whose config.js lacks it.
   IS_MICROAPP: false,
 
   // DEV_SUPER_APP_TOKEN  (browser development only; ignored when IS_MICROAPP)
@@ -33,7 +34,8 @@ window.config = {
   //   so it must be a JWT whose email is on that roster. A local backend with
   //   TOKEN_VALIDATOR_ENABLED=false decodes it without checking the signature,
   //   so a hand-made token works there; a deployed backend needs a real one.
-  //   Never set this in a config.js that ships inside the zip.
+  //   Never set this in a config.js that ships inside the zip; `npm run
+  //   package` (via verify:file-protocol) refuses a build that does.
   DEV_SUPER_APP_TOKEN: "",
 
   // ── Asgardeo (reserved; not read yet) ──────────────────────────────────────
